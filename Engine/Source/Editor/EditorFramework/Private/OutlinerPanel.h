@@ -56,6 +56,8 @@ struct FOutlinerPanelState
 	std::array<char, 1025> RenameBuffer{};
 	std::vector<int> VisibleIndices;
 	std::vector<FOutlinerRow> VisibleRows;
+	// Measured by last frame's clipper; pinning the folders above the top row needs it before this frame's rows.
+	float RowHeight = 0.f;
 	std::set<FObjectId> CollapsedObjects;
 	std::set<FObjectId> CollapsedFolders;
 	std::optional<FOutlinerReparentRequest> ReparentRequest;

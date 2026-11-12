@@ -154,8 +154,9 @@ void FOutlinerRenameTestContext::PanelFrame(const std::span<const FPreviewObject
 	{
 		if (Window->ParentWindow == Host && Window->ChildId == Host->GetID("##OutlinerEntries"))
 		{
-			Entries = Window;
+			// The rows scroll in the table's own child window, below its frozen header.
 			Table = Context->Tables.GetByKey(Window->GetID("##OutlinerObjects"));
+			Entries = Table ? Table->InnerWindow : nullptr;
 		}
 	}
 
@@ -627,6 +628,14 @@ TEST_CASE("Outliner reveal scrolls a viewport pick inside a collapsed folder int
 	const float Scroll = Test.Entries->Scroll.y;
 	Test.PanelFrame(Objects, Selection, {500.f, 360.f}, false, {}, Folders);
 	CHECK(Test.Entries->Scroll.y == Scroll);
+
+	// The folder holding the rows scrolled to pins under the header, and unpins back at the top.
+	REQUIRE(Test.Table != nullptr);
+	CHECK(Test.Table->FreezeRowsRequest == 2);
+	ImGui::SetScrollY(Test.Entries, 0.f);
+	Test.PanelFrame(Objects, Selection, {500.f, 360.f}, false, {}, Folders);
+	Test.PanelFrame(Objects, Selection, {500.f, 360.f}, false, {}, Folders);
+	CHECK(Test.Table->FreezeRowsRequest == 1);
 }
 
 TEST_CASE("Outliner panel drop targets distinguish object rows from empty root space and disable during dragging")

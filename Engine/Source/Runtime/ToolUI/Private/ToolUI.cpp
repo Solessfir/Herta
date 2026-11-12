@@ -2462,6 +2462,14 @@ void FToolUIContext::QueueDrag(const float FromX, const float FromY, const float
 	Implementation->PointerSteps.push_back({.X = ToX, .Y = ToY, .Button = 0});
 }
 
+void FToolUIContext::QueueScroll(const float X, const float Y, const float Lines)
+{
+	ImGui::SetCurrentContext(Implementation->Context);
+	ImGuiIO& Input = ImGui::GetIO();
+	Input.AddMousePosEvent(X, Y);
+	Input.AddMouseWheelEvent(0.f, -Lines);
+}
+
 void FToolUIContext::QueueText(const std::string_view Text)
 {
 	ImGui::SetCurrentContext(Implementation->Context);

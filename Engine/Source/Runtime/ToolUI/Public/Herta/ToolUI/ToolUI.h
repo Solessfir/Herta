@@ -287,6 +287,8 @@ public:
 	void QueueClick(float X, float Y, int Button, bool bDouble);
 	// Presses the left button at From, moves to To over several frames, and releases there, as a drag and drop needs.
 	void QueueDrag(float FromX, float FromY, float ToX, float ToY);
+	// Positive lines scroll down, as a wheel turned toward the user.
+	void QueueScroll(float X, float Y, float Lines);
 	void QueueText(std::string_view Text);
 	// A key with optional modifiers, such as "Enter" or "Ctrl+S"; false for a name it does not know.
 	[[nodiscard]] bool QueueKey(std::string_view Chord);

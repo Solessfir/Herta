@@ -508,10 +508,32 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6.f * Scale, 8.f * Scale});
 		ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, {0, 0, 0, 0});
 		ImGui::PushStyleColor(ImGuiCol_TableBorderLight, {1, 1, 1, 0.08f});
-		if (ImGui::BeginTable("##OutlinerObjects", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_PadOuterX))
+		if (ImGui::BeginTable("##OutlinerObjects", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_ScrollY))
 		{
 			ImGui::TableSetupColumn("Item Label", ImGuiTableColumnFlags_WidthStretch);
 			ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 105.f * ImGui::GetFontSize() / 15.f);
+
+			// The folders holding the top row pin under the header as frozen rows. Those push the scrolled rows down rather than cover them, so the top row does not depend on how many are pinned.
+			std::vector<int> StickyRows;
+			const int TopRow = State.RowHeight > 0.f ? static_cast<int>(ImGui::GetScrollY() / State.RowHeight) : 0;
+			if (TopRow > 0 && TopRow < static_cast<int>(State.VisibleRows.size()))
+			{
+				int Depth = State.VisibleRows[static_cast<std::size_t>(TopRow)].Depth;
+				for (int Index = TopRow - 1; Index >= 0 && Depth > 0; --Index)
+				{
+					const FOutlinerRow& Row = State.VisibleRows[static_cast<std::size_t>(Index)];
+					if (Row.Depth < Depth)
+					{
+						Depth = Row.Depth;
+						if (Row.FolderIndex >= 0)
+						{
+							StickyRows.insert(StickyRows.begin(), Index);
+						}
+					}
+				}
+			}
+
+			ImGui::TableSetupScrollFreeze(0, 1 + static_cast<int>(StickyRows.size()));
 			ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
 			ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0, 0, 0, 0});
 			ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0, 0, 0, 0});
@@ -522,6 +544,257 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 			ImGui::GetWindowDrawList()->AddRectFilled({Table->WorkRect.Min.x, Table->RowPosY1}, {Table->WorkRect.Max.x, Table->RowPosY2}, ImGui::GetColorU32(ImVec4{1, 1, 1, 0.05f}), 4.f * Scale);
 			ImGui::TablePopBackgroundChannel();
 			RowsTop = ImGui::GetCursorScreenPos().y;
+			const auto DrawRow = [&](const int VisibleIndex)
+			{
+				const FOutlinerRow& Row = State.VisibleRows[static_cast<std::size_t>(VisibleIndex)];
+				const bool bFolder = Row.FolderIndex >= 0;
+				const FLevelFolder* const Folder = bFolder ? &Folders[static_cast<std::size_t>(Row.FolderIndex)] : nullptr;
+				const FPreviewObject* const Object = bFolder ? nullptr : &Objects[static_cast<std::size_t>(Row.ObjectIndex)];
+				const FObjectId Id = bFolder ? Folders[static_cast<std::size_t>(Row.FolderIndex)].Id : Objects[static_cast<std::size_t>(Row.ObjectIndex)].Id;
+				const std::string& Label = bFolder ? Folders[static_cast<std::size_t>(Row.FolderIndex)].Name : Objects[static_cast<std::size_t>(Row.ObjectIndex)].Label;
+				const bool bSelected = bFolder ? State.SelectedFolder == Id : SelectedMask[static_cast<std::size_t>(Row.ObjectIndex)];
+
+				ImGui::PushID(bFolder ? -Row.FolderIndex - 1 : Row.ObjectIndex);
+				ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {8.f * Scale, 6.f * Scale});
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6.f * Scale, 12.f * Scale});
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+				const float Indent = std::min(static_cast<float>(Row.Depth) * 18.f * Scale, std::max(0.f, Table->Columns[0].WorkMaxX - ImGui::GetCursorScreenPos().x - 84.f * Scale));
+				const float ArrowX = ImGui::GetCursorScreenPos().x + Indent;
+				const float IconX = ArrowX + 20.f * Scale;
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + Indent + 42.f * Scale);
+				ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
+				ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0, 0, 0, 0});
+				ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0, 0, 0, 0});
+				ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
+				const float LabelX = ImGui::GetCursorScreenPos().x;
+				const bool bRenamingRow = State.bRenaming && (bFolder ? State.RenameFolder == Id : !State.RenameFolder.IsValid() && State.RenameObject == Id);
+				if (bRenamingRow)
+				{
+					ImGui::SetNextItemAllowOverlap();
+				}
+
+				const bool bArrowHit = Row.bHasChildren && IO.MousePos.x >= ArrowX && IO.MousePos.x < ArrowX + 18.f * Scale;
+				auto& Collapsed = bFolder ? State.CollapsedFolders : State.CollapsedObjects;
+				const bool bExpanded = State.Search.IsActive() || !Collapsed.contains(Id);
+				if (ImGui::Selectable("##Object", bSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) && !bRenamingRow)
+				{
+					if (bArrowHit || (bFolder && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)))
+					{
+						if (!State.Search.IsActive())
+						{
+							if (bExpanded)
+							{
+								Collapsed.insert(Id);
+							}
+							else
+							{
+								Collapsed.erase(Id);
+							}
+						}
+					}
+					else if (bFolder)
+					{
+						State.SelectedFolder = Id;
+						Selection.Select(-1);
+					}
+					else if (IO.KeyShift)
+					{
+						State.SelectedFolder = {};
+						Selection.SelectRange(Row.ObjectIndex, VisibleIndices, IO.KeyCtrl);
+					}
+					else if (!IO.KeyCtrl || !ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+					{
+						State.SelectedFolder = {};
+						Selection.Select(Row.ObjectIndex, IO.KeyCtrl);
+					}
+					RefreshSelectedMask();
+
+					bFocusRequested = !bFolder && !bArrowHit && (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) || ImGui::IsKeyPressed(ImGuiKey_Enter));
+				}
+
+				ImGui::PopStyleColor(4);
+				const bool bCurrentRowHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+				bRowHovered |= bCurrentRowHovered;
+				const ImVec2 Minimum = ImGui::GetItemRectMin();
+				const ImVec2 Maximum = ImGui::GetItemRectMax();
+				if (bReveal && !bFolder && Row.ObjectIndex == Selection.Active)
+				{
+					ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleCenterY);
+				}
+
+				if (bSelected || bCurrentRowHovered)
+				{
+					const ImGuiCol Color = bCurrentRowHovered ? (ImGui::IsItemActive() ? ImGuiCol_HeaderActive : ImGuiCol_HeaderHovered) : ImGuiCol_Header;
+					ImGui::TablePushBackgroundChannel();
+					ImGui::GetWindowDrawList()->AddRectFilled({Table->WorkRect.Min.x, Minimum.y}, {Table->WorkRect.Max.x, Maximum.y}, ImGui::GetColorU32(Color), 4.f * Scale);
+					ImGui::TablePopBackgroundChannel();
+				}
+
+				const float CenterY = (Minimum.y + Maximum.y) * 0.5f;
+				const bool bArrowDrag = Row.bHasChildren && IO.MouseClickedPos[ImGuiMouseButton_Left].x >= ArrowX && IO.MouseClickedPos[ImGuiMouseButton_Left].x < ArrowX + 18.f * Scale;
+				if (!bDragging && !bRenamingRow && !bArrowDrag && Id.IsValid() && ImGui::BeginDragDropSource())
+				{
+					const ImGuiPayload* Payload = ImGui::GetDragDropPayload();
+					if (bFolder)
+					{
+						ImGui::SetDragDropPayload(OutlinerFolderPayload, &Id, sizeof(Id), ImGuiCond_Once);
+					}
+					else if (!Payload || !Payload->IsDataType(OutlinerPayload))
+					{
+						const auto Request = MakeOutlinerReparentRequest(Objects, Selection, Row.ObjectIndex, std::nullopt);
+						if (Request)
+						{
+							ImGui::SetDragDropPayload(OutlinerPayload, Request->Objects.data(), Request->Objects.size() * sizeof(FObjectId), ImGuiCond_Once);
+						}
+
+						Payload = ImGui::GetDragDropPayload();
+					}
+
+					ImGui::TextUnformatted(Label.c_str());
+					if (!bFolder && Payload && static_cast<std::size_t>(Payload->DataSize) > sizeof(FObjectId))
+					{
+						ImGui::TextDisabled("%d objects", static_cast<int>(static_cast<std::size_t>(Payload->DataSize) / sizeof(FObjectId)));
+					}
+					ImGui::TextDisabled("%s", bFolder ? "Drop on a folder to nest, or empty space for root" : "Drop on an entity to parent, or a folder to organize");
+
+					ImGui::EndDragDropSource();
+				}
+
+				if (!bDragging && !bRenamingRow && Id.IsValid() && ImGui::BeginDragDropTarget())
+				{
+					if (bFolder)
+					{
+						AcceptOutlinerFolderDrop(State, Id);
+					}
+					else
+					{
+						AcceptOutlinerDrop(State, Id);
+					}
+					ImGui::EndDragDropTarget();
+				}
+
+				if (!bDragging && !bRenamingRow && ImGui::BeginPopupContextItem("##ObjectActions"))
+				{
+					if (bFolder)
+					{
+						State.SelectedFolder = Id;
+						Selection.Select(-1);
+						if (ToolUIMenuItem("New Folder", EToolUIMenuIcon::ContentBrowser, nullptr, "Ctrl+Shift+N"))
+						{
+							RequestOutlinerFolder(State, Selection, Objects, Id, false);
+						}
+
+						if (ToolUIMenuItem("Rename", EToolUIMenuIcon::Details, nullptr, "F2"))
+						{
+							State.bRenameRequested = true;
+						}
+
+						ImGui::BeginDisabled(!Folder->Parent.IsValid());
+						if (ToolUIMenuItem("Move to root", EToolUIMenuIcon::Outliner))
+						{
+							State.FolderRequest = FOutlinerFolderRequest{.Action = EOutlinerFolderAction::MoveFolder, .Folder = Id};
+						}
+
+						ImGui::EndDisabled();
+						ImGui::Separator();
+						if (ToolUIMenuItem("Delete Folder", EToolUIMenuIcon::Delete, nullptr, "Delete"))
+						{
+							State.FolderRequest = FOutlinerFolderRequest{.Action = EOutlinerFolderAction::Delete, .Folder = Id};
+						}
+					}
+					else
+					{
+						if (!Selection.Contains(Row.ObjectIndex))
+						{
+							Selection.Select(Row.ObjectIndex);
+						}
+
+						State.SelectedFolder = {};
+						if (ToolUIMenuItem("New Folder from Selection", EToolUIMenuIcon::ContentBrowser))
+						{
+							RequestOutlinerFolder(State, Selection, Objects, std::nullopt, true);
+						}
+
+						if (ToolUIMenuItem("Move to root", EToolUIMenuIcon::Outliner))
+						{
+							const auto Request = MakeOutlinerReparentRequest(Objects, Selection, Row.ObjectIndex, std::nullopt);
+							if (Request)
+							{
+								State.FolderRequest = FOutlinerFolderRequest{.Action = EOutlinerFolderAction::MoveEntities, .Objects = Request->Objects};
+							}
+						}
+
+						ImGui::BeginDisabled(!Object->Parent.has_value() && Selection.Indices.size() <= 1);
+						if (ToolUIMenuItem("Unparent", EToolUIMenuIcon::Entity))
+						{
+							State.ReparentRequest = MakeOutlinerReparentRequest(Objects, Selection, Row.ObjectIndex, std::nullopt);
+						}
+
+						ImGui::EndDisabled();
+					}
+
+					ImGui::EndPopup();
+				}
+
+				if (Row.bHasChildren)
+				{
+					ImDrawList* const Draw = ImGui::GetWindowDrawList();
+					const ImU32 ArrowColor = ImGui::GetColorU32(bCurrentRowHovered && bArrowHit ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+					if (bExpanded)
+					{
+						Draw->AddTriangleFilled({ArrowX + 4.f * Scale, CenterY - 2.f * Scale}, {ArrowX + 12.f * Scale, CenterY - 2.f * Scale}, {ArrowX + 8.f * Scale, CenterY + 3.f * Scale}, ArrowColor);
+					}
+					else
+					{
+						Draw->AddTriangleFilled({ArrowX + 6.f * Scale, CenterY - 4.f * Scale}, {ArrowX + 6.f * Scale, CenterY + 4.f * Scale}, {ArrowX + 11.f * Scale, CenterY}, ArrowColor);
+					}
+				}
+
+				if (bRenamingRow)
+				{
+					bRowHovered |= DrawOutlinerRenameField(State, {LabelX, CenterY - ImGui::GetFrameHeight() * 0.5f}, Table->Columns[0].WorkMaxX - LabelX, bStartRename);
+				}
+				else
+				{
+					// Drawn text does not widen the column's measured contents, so the table would drop its clip rect; the ellipsis keeps a long name out of the Type column.
+					const float LabelMaxX = Table->Columns[0].WorkMaxX;
+					ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), {LabelX, CenterY - ImGui::GetFontSize() * 0.5f}, {LabelMaxX, CenterY + ImGui::GetFontSize() * 0.5f}, LabelMaxX, Label.data(), Label.data() + Label.size(), nullptr);
+				}
+				const auto Kind = bFolder ? EPreviewObjectKind::Entity : Object->Kind;
+				const EToolUIMenuIcon Icon = bFolder                                                                                 ? EToolUIMenuIcon::Folder
+				                             : Kind == EPreviewObjectKind::SkyAtmosphere                                             ? EToolUIMenuIcon::SkyAtmosphere
+				                             : Kind == EPreviewObjectKind::HeightFog                                                 ? EToolUIMenuIcon::Fog
+				                             : Kind == EPreviewObjectKind::SoftBody || Kind == EPreviewObjectKind::Trigger           ? EToolUIMenuIcon::Physics
+				                             : Kind >= EPreviewObjectKind::DirectionalLight && Kind <= EPreviewObjectKind::RectLight ? EToolUIMenuIcon::Light
+				                             : Object->Mesh.IsValid()                                                                ? EToolUIMenuIcon::Cube
+				                                                                                                                     : EToolUIMenuIcon::Entity;
+				ToolUIIcon(Icon, IconX + 6.f * Scale, CenterY, Scale * 0.8f);
+				ImGui::TableSetColumnIndex(1);
+				const std::string_view TypeName = bFolder ? "Folder" : GetPreviewObjectTypeName(*Object);
+				ImGui::TextDisabled("%.*s", static_cast<int>(TypeName.size()), TypeName.data());
+				ImGui::PopStyleVar(2);
+				ImGui::PopID();
+			};
+
+			// The pinned folders draw first, as the frozen rows below the header, tinted like it.
+			for (const int StickyRow : StickyRows)
+			{
+				ImGui::PushID("##Sticky");
+				DrawRow(StickyRow);
+				ImGui::PopID();
+				// The row's own bounds, as a selectable reaches past them into its neighbors.
+				ImDrawList* const Draw = ImGui::GetWindowDrawList();
+				ImGui::TablePushBackgroundChannel();
+				Draw->AddRectFilled({Table->WorkRect.Min.x, Table->RowPosY1}, {Table->WorkRect.Max.x, Table->RowPosY2}, ImGui::GetColorU32(ImVec4{1, 1, 1, 0.05f}));
+				if (StickyRow == StickyRows.back())
+				{
+					Draw->AddLine({Table->WorkRect.Min.x, Table->RowPosY2 - 1.f}, {Table->WorkRect.Max.x, Table->RowPosY2 - 1.f}, ImGui::GetColorU32(ImGuiCol_Border));
+				}
+
+				ImGui::TablePopBackgroundChannel();
+			}
+
 			ImGuiListClipper Clipper;
 			Clipper.Begin(static_cast<int>(State.VisibleRows.size()));
 			const auto IncludeObject = [&](const int ObjectIndex)
@@ -570,242 +843,20 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 			{
 				for (int VisibleIndex = Clipper.DisplayStart; VisibleIndex < Clipper.DisplayEnd; ++VisibleIndex)
 				{
-					const FOutlinerRow& Row = State.VisibleRows[static_cast<std::size_t>(VisibleIndex)];
-					const bool bFolder = Row.FolderIndex >= 0;
-					const FLevelFolder* const Folder = bFolder ? &Folders[static_cast<std::size_t>(Row.FolderIndex)] : nullptr;
-					const FPreviewObject* const Object = bFolder ? nullptr : &Objects[static_cast<std::size_t>(Row.ObjectIndex)];
-					const FObjectId Id = bFolder ? Folders[static_cast<std::size_t>(Row.FolderIndex)].Id : Objects[static_cast<std::size_t>(Row.ObjectIndex)].Id;
-					const std::string& Label = bFolder ? Folders[static_cast<std::size_t>(Row.FolderIndex)].Name : Objects[static_cast<std::size_t>(Row.ObjectIndex)].Label;
-					const bool bSelected = bFolder ? State.SelectedFolder == Id : SelectedMask[static_cast<std::size_t>(Row.ObjectIndex)];
-
-					ImGui::PushID(bFolder ? -Row.FolderIndex - 1 : Row.ObjectIndex);
-					ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {8.f * Scale, 6.f * Scale});
-					ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6.f * Scale, 12.f * Scale});
-					ImGui::TableNextRow();
-					ImGui::TableSetColumnIndex(0);
-					const float Indent = std::min(static_cast<float>(Row.Depth) * 18.f * Scale, std::max(0.f, Table->Columns[0].WorkMaxX - ImGui::GetCursorScreenPos().x - 84.f * Scale));
-					const float ArrowX = ImGui::GetCursorScreenPos().x + Indent;
-					const float IconX = ArrowX + 20.f * Scale;
-					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + Indent + 42.f * Scale);
-					ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
-					ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0, 0, 0, 0});
-					ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0, 0, 0, 0});
-					ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
-					const float LabelX = ImGui::GetCursorScreenPos().x;
-					const bool bRenamingRow = State.bRenaming && (bFolder ? State.RenameFolder == Id : !State.RenameFolder.IsValid() && State.RenameObject == Id);
-					if (bRenamingRow)
-					{
-						ImGui::SetNextItemAllowOverlap();
-					}
-
-					const bool bArrowHit = Row.bHasChildren && IO.MousePos.x >= ArrowX && IO.MousePos.x < ArrowX + 18.f * Scale;
-					auto& Collapsed = bFolder ? State.CollapsedFolders : State.CollapsedObjects;
-					const bool bExpanded = State.Search.IsActive() || !Collapsed.contains(Id);
-					if (ImGui::Selectable("##Object", bSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) && !bRenamingRow)
-					{
-						if (bArrowHit || (bFolder && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)))
-						{
-							if (!State.Search.IsActive())
-							{
-								if (bExpanded)
-								{
-									Collapsed.insert(Id);
-								}
-								else
-								{
-									Collapsed.erase(Id);
-								}
-							}
-						}
-						else if (bFolder)
-						{
-							State.SelectedFolder = Id;
-							Selection.Select(-1);
-						}
-						else if (IO.KeyShift)
-						{
-							State.SelectedFolder = {};
-							Selection.SelectRange(Row.ObjectIndex, VisibleIndices, IO.KeyCtrl);
-						}
-						else if (!IO.KeyCtrl || !ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-						{
-							State.SelectedFolder = {};
-							Selection.Select(Row.ObjectIndex, IO.KeyCtrl);
-						}
-						RefreshSelectedMask();
-
-						bFocusRequested = !bFolder && !bArrowHit && (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) || ImGui::IsKeyPressed(ImGuiKey_Enter));
-					}
-
-					ImGui::PopStyleColor(4);
-					const bool bCurrentRowHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
-					bRowHovered |= bCurrentRowHovered;
-					const ImVec2 Minimum = ImGui::GetItemRectMin();
-					const ImVec2 Maximum = ImGui::GetItemRectMax();
-					if (bReveal && !bFolder && Row.ObjectIndex == Selection.Active)
-					{
-						ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleCenterY);
-					}
-
-					if (bSelected || bCurrentRowHovered)
-					{
-						const ImGuiCol Color = bCurrentRowHovered ? (ImGui::IsItemActive() ? ImGuiCol_HeaderActive : ImGuiCol_HeaderHovered) : ImGuiCol_Header;
-						ImGui::TablePushBackgroundChannel();
-						ImGui::GetWindowDrawList()->AddRectFilled({Table->WorkRect.Min.x, Minimum.y}, {Table->WorkRect.Max.x, Maximum.y}, ImGui::GetColorU32(Color), 4.f * Scale);
-						ImGui::TablePopBackgroundChannel();
-					}
-
-					const float CenterY = (Minimum.y + Maximum.y) * 0.5f;
-					const bool bArrowDrag = Row.bHasChildren && IO.MouseClickedPos[ImGuiMouseButton_Left].x >= ArrowX && IO.MouseClickedPos[ImGuiMouseButton_Left].x < ArrowX + 18.f * Scale;
-					if (!bDragging && !bRenamingRow && !bArrowDrag && Id.IsValid() && ImGui::BeginDragDropSource())
-					{
-						const ImGuiPayload* Payload = ImGui::GetDragDropPayload();
-						if (bFolder)
-						{
-							ImGui::SetDragDropPayload(OutlinerFolderPayload, &Id, sizeof(Id), ImGuiCond_Once);
-						}
-						else if (!Payload || !Payload->IsDataType(OutlinerPayload))
-						{
-							const auto Request = MakeOutlinerReparentRequest(Objects, Selection, Row.ObjectIndex, std::nullopt);
-							if (Request)
-							{
-								ImGui::SetDragDropPayload(OutlinerPayload, Request->Objects.data(), Request->Objects.size() * sizeof(FObjectId), ImGuiCond_Once);
-							}
-
-							Payload = ImGui::GetDragDropPayload();
-						}
-
-						ImGui::TextUnformatted(Label.c_str());
-						if (!bFolder && Payload && static_cast<std::size_t>(Payload->DataSize) > sizeof(FObjectId))
-						{
-							ImGui::TextDisabled("%d objects", static_cast<int>(static_cast<std::size_t>(Payload->DataSize) / sizeof(FObjectId)));
-						}
-						ImGui::TextDisabled("%s", bFolder ? "Drop on a folder to nest, or empty space for root" : "Drop on an entity to parent, or a folder to organize");
-
-						ImGui::EndDragDropSource();
-					}
-
-					if (!bDragging && !bRenamingRow && Id.IsValid() && ImGui::BeginDragDropTarget())
-					{
-						if (bFolder)
-						{
-							AcceptOutlinerFolderDrop(State, Id);
-						}
-						else
-						{
-							AcceptOutlinerDrop(State, Id);
-						}
-						ImGui::EndDragDropTarget();
-					}
-
-					if (!bDragging && !bRenamingRow && ImGui::BeginPopupContextItem("##ObjectActions"))
-					{
-						if (bFolder)
-						{
-							State.SelectedFolder = Id;
-							Selection.Select(-1);
-							if (ToolUIMenuItem("New Folder", EToolUIMenuIcon::ContentBrowser, nullptr, "Ctrl+Shift+N"))
-							{
-								RequestOutlinerFolder(State, Selection, Objects, Id, false);
-							}
-
-							if (ToolUIMenuItem("Rename", EToolUIMenuIcon::Details, nullptr, "F2"))
-							{
-								State.bRenameRequested = true;
-							}
-
-							ImGui::BeginDisabled(!Folder->Parent.IsValid());
-							if (ToolUIMenuItem("Move to root", EToolUIMenuIcon::Outliner))
-							{
-								State.FolderRequest = FOutlinerFolderRequest{.Action = EOutlinerFolderAction::MoveFolder, .Folder = Id};
-							}
-
-							ImGui::EndDisabled();
-							ImGui::Separator();
-							if (ToolUIMenuItem("Delete Folder", EToolUIMenuIcon::Delete, nullptr, "Delete"))
-							{
-								State.FolderRequest = FOutlinerFolderRequest{.Action = EOutlinerFolderAction::Delete, .Folder = Id};
-							}
-						}
-						else
-						{
-							if (!Selection.Contains(Row.ObjectIndex))
-							{
-								Selection.Select(Row.ObjectIndex);
-							}
-
-							State.SelectedFolder = {};
-							if (ToolUIMenuItem("New Folder from Selection", EToolUIMenuIcon::ContentBrowser))
-							{
-								RequestOutlinerFolder(State, Selection, Objects, std::nullopt, true);
-							}
-
-							if (ToolUIMenuItem("Move to root", EToolUIMenuIcon::Outliner))
-							{
-								const auto Request = MakeOutlinerReparentRequest(Objects, Selection, Row.ObjectIndex, std::nullopt);
-								if (Request)
-								{
-									State.FolderRequest = FOutlinerFolderRequest{.Action = EOutlinerFolderAction::MoveEntities, .Objects = Request->Objects};
-								}
-							}
-
-							ImGui::BeginDisabled(!Object->Parent.has_value() && Selection.Indices.size() <= 1);
-							if (ToolUIMenuItem("Unparent", EToolUIMenuIcon::Entity))
-							{
-								State.ReparentRequest = MakeOutlinerReparentRequest(Objects, Selection, Row.ObjectIndex, std::nullopt);
-							}
-
-							ImGui::EndDisabled();
-						}
-
-						ImGui::EndPopup();
-					}
-
-					if (Row.bHasChildren)
-					{
-						ImDrawList* const Draw = ImGui::GetWindowDrawList();
-						const ImU32 ArrowColor = ImGui::GetColorU32(bCurrentRowHovered && bArrowHit ? ImGuiCol_Text : ImGuiCol_TextDisabled);
-						if (bExpanded)
-						{
-							Draw->AddTriangleFilled({ArrowX + 4.f * Scale, CenterY - 2.f * Scale}, {ArrowX + 12.f * Scale, CenterY - 2.f * Scale}, {ArrowX + 8.f * Scale, CenterY + 3.f * Scale}, ArrowColor);
-						}
-						else
-						{
-							Draw->AddTriangleFilled({ArrowX + 6.f * Scale, CenterY - 4.f * Scale}, {ArrowX + 6.f * Scale, CenterY + 4.f * Scale}, {ArrowX + 11.f * Scale, CenterY}, ArrowColor);
-						}
-					}
-
-					if (bRenamingRow)
-					{
-						bRowHovered |= DrawOutlinerRenameField(State, {LabelX, CenterY - ImGui::GetFrameHeight() * 0.5f}, Table->Columns[0].WorkMaxX - LabelX, bStartRename);
-					}
-					else
-					{
-						ImGui::GetWindowDrawList()->AddText({LabelX, CenterY - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Label.data(), Label.data() + Label.size());
-					}
-					const auto Kind = bFolder ? EPreviewObjectKind::Entity : Object->Kind;
-					const EToolUIMenuIcon Icon = bFolder                                                                                 ? EToolUIMenuIcon::Folder
-					                             : Kind == EPreviewObjectKind::SkyAtmosphere                                             ? EToolUIMenuIcon::SkyAtmosphere
-					                             : Kind == EPreviewObjectKind::HeightFog                                                 ? EToolUIMenuIcon::Fog
-					                             : Kind == EPreviewObjectKind::SoftBody || Kind == EPreviewObjectKind::Trigger           ? EToolUIMenuIcon::Physics
-					                             : Kind >= EPreviewObjectKind::DirectionalLight && Kind <= EPreviewObjectKind::RectLight ? EToolUIMenuIcon::Light
-					                             : Object->Mesh.IsValid()                                                                ? EToolUIMenuIcon::Cube
-					                                                                                                                     : EToolUIMenuIcon::Entity;
-					ToolUIIcon(Icon, IconX + 6.f * Scale, CenterY, Scale * 0.8f);
-					ImGui::TableSetColumnIndex(1);
-					const std::string_view TypeName = bFolder ? "Folder" : GetPreviewObjectTypeName(*Object);
-					ImGui::TextDisabled("%.*s", static_cast<int>(TypeName.size()), TypeName.data());
-					ImGui::PopStyleVar(2);
-					ImGui::PopID();
+					DrawRow(VisibleIndex);
 				}
 			}
+
+			State.RowHeight = std::max(Clipper.ItemsHeight, 0.f);
 
 			ImGui::EndTable();
 		}
 
 		ImGui::PopStyleColor(2);
 		ImGui::PopStyleVar(3);
-		if (!bDragging && ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::GetIO().MousePos.y >= RowsTop && !bRowHovered)
+		// The rows scroll in the table's own child window.
+		const bool bEntriesHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
+		if (!bDragging && bEntriesHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::GetIO().MousePos.y >= RowsTop && !bRowHovered)
 		{
 			Selection.Select(-1);
 			State.SelectedFolder = {};
@@ -823,7 +874,12 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 			}
 		}
 
-		if (!bDragging && ImGui::BeginPopupContextWindow("##OutlinerActions", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
+		if (!bDragging && bEntriesHovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right) && !ImGui::IsAnyItemHovered())
+		{
+			ImGui::OpenPopup("##OutlinerActions");
+		}
+
+		if (!bDragging && ImGui::BeginPopup("##OutlinerActions"))
 		{
 			if (ToolUIMenuItem("New Folder", EToolUIMenuIcon::ContentBrowser, nullptr, "Ctrl+Shift+N"))
 			{

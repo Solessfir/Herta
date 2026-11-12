@@ -1006,7 +1006,7 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 	}
 
 	// Clicks and typing can do anything the user can, such as saving or deleting, so they need a session that allows writes.
-	if ((Tool == "ui_click" || Tool == "ui_type" || Tool == "ui_drag") && !Server.AllowsWrites())
+	if ((Tool == "ui_click" || Tool == "ui_type" || Tool == "ui_drag" || Tool == "ui_scroll") && !Server.AllowsWrites())
 	{
 		Server.Fail(Request.Id, "read_only", "UI input can change files and the level; start the editor with --automation=write");
 		return true;
@@ -1068,6 +1068,21 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 
 		Editor.ToolUI->QueueDrag(From->Bounds.X + From->Bounds.Width * 0.5f, From->Bounds.Y + From->Bounds.Height * 0.5f, To->Bounds.X + To->Bounds.Width * 0.5f, To->Bounds.Y + To->Bounds.Height * 0.5f);
 		Editor.AutomationUiReplies.push_back({.Id = Request.Id, .FramesLeft = 14, .Output = "{\"dragged\": true}"});
+		return true;
+	}
+
+	if (Tool == "ui_scroll")
+	{
+		const auto Items = Editor.ToolUI->GetRecordedItems();
+		const auto Item = std::ranges::find(Items, static_cast<std::uint32_t>(Arguments.Number("id", 0.)), &FToolUIItem::Id);
+		if (Item == Items.end())
+		{
+			Server.Fail(Request.Id, "not_found", "id must be one that ui_items lists");
+			return true;
+		}
+
+		Editor.ToolUI->QueueScroll(Item->Bounds.X + Item->Bounds.Width * 0.5f, Item->Bounds.Y + Item->Bounds.Height * 0.5f, static_cast<float>(Arguments.Number("lines", 1.)));
+		Editor.AutomationUiReplies.push_back({.Id = Request.Id, .FramesLeft = 4, .Output = "{\"scrolled\": true}"});
 		return true;
 	}
 
