@@ -211,6 +211,9 @@ void WriteMover(FBinaryWriter& Writer, const FMoverSnapshot& Mover)
 	Writer.Write(static_cast<std::uint32_t>(State.ChainedWallRuns));
 	Writer.WriteFloat(State.AccelerationSeconds);
 	Writer.WriteFloat(State.StoppingSeconds);
+	Writer.WriteFloat(State.FallSpeed);
+	Writer.WriteFloat(State.LandingSeconds);
+	Writer.Write(static_cast<std::uint8_t>(State.bSkidding ? 1 : 0));
 	Writer.Write(static_cast<std::uint8_t>(Mover.Active));
 	Writer.Write(static_cast<std::uint8_t>(Mover.Modes.size()));
 	for (const std::vector<float>& Mode : Mover.Modes)
@@ -259,6 +262,9 @@ void WriteMover(FBinaryWriter& Writer, const FMoverSnapshot& Mover)
 	State.ChainedWallRuns = static_cast<std::int32_t>(Reader.Read<std::uint32_t>());
 	State.AccelerationSeconds = Reader.ReadFloat();
 	State.StoppingSeconds = Reader.ReadFloat();
+	State.FallSpeed = Reader.ReadFloat();
+	State.LandingSeconds = Reader.ReadFloat();
+	State.bSkidding = Reader.Read<std::uint8_t>() != 0;
 	Mover.Active = Reader.Read<std::uint8_t>();
 	const auto ModeCount = Reader.Read<std::uint8_t>();
 	if (ModeCount > MaximumModeCount)
@@ -291,7 +297,7 @@ void WriteMover(FBinaryWriter& Writer, const FMoverSnapshot& Mover)
 	const FMoverState& State = Mover.State;
 	const bool bVectors = IsFinite(State.Foot) && IsFinite(State.PreviousFoot) && IsFinite(State.Velocity) && IsFinite(State.Ground.FootPosition) && IsFinite(State.Ground.Velocity) && IsFinite(State.Ground.GroundVelocity)
 	    && IsFinite(State.Ground.GroundNormal) && IsFinite(State.Ground.WallNormal) && IsFinite(State.LastJumpFoot) && (!State.LastWallNormal || IsFinite(*State.LastWallNormal)) && (!State.WallRunNormal || IsFinite(*State.WallRunNormal));
-	const bool bScalars = std::isfinite(State.AirborneSeconds) && std::isfinite(State.JumpBufferSeconds) && std::isfinite(State.TakeoffSpeed) && std::isfinite(State.AccelerationSeconds) && std::isfinite(State.StoppingSeconds);
+	const bool bScalars = std::isfinite(State.AirborneSeconds) && std::isfinite(State.JumpBufferSeconds) && std::isfinite(State.TakeoffSpeed) && std::isfinite(State.AccelerationSeconds) && std::isfinite(State.StoppingSeconds) && std::isfinite(State.FallSpeed) && std::isfinite(State.LandingSeconds);
 	return bVectors && bScalars && std::ranges::all_of(Mover.Modes, [](const std::vector<float>& Mode)
 	{
 		return std::ranges::all_of(Mode, [](const float Value)

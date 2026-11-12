@@ -2,6 +2,7 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <string>
@@ -278,5 +279,94 @@ TEST_CASE("Character movers leave out disabled modes and ask custom modes first"
 	Run(*World, Custom, {.Move = {0.f, 1.f}}, 10);
 	CHECK(std::string(Custom.GetActiveMode()) == "Probe");
 	CHECK(HorizontalSpeed(Custom) == 0.f);
+}
+
+TEST_CASE("A sprint sweeps round a turn that a run takes at once, and pushing against it skids to a stop in a line")
+{
+	const auto Heading = [](const FCharacterMover& Mover)
+	{
+		return std::atan2(Mover.GetState().Velocity.X, Mover.GetState().Velocity.Z);
+	};
+
+	constexpr float QuarterTurn = 1.5708f;
+	const auto World = MakeFloor();
+	FCharacterMover Sprinter = MakeMover(*World);
+	Run(*World, Sprinter, {}, 20);
+	Run(*World, Sprinter, {.Move = {0.f, 1.f}, .bSprint = true}, 90);
+	REQUIRE(HorizontalSpeed(Sprinter) > 7.f);
+
+	// A tenth of a second into a quarter turn the sprint has swung round only part of it, and it keeps its speed through the turn.
+	Run(*World, Sprinter, {.Move = {0.f, 1.f}, .Yaw = QuarterTurn, .bSprint = true}, 6);
+	CHECK(Heading(Sprinter) < 0.6f);
+	CHECK(Heading(Sprinter) > 0.2f);
+	Run(*World, Sprinter, {.Move = {0.f, 1.f}, .Yaw = QuarterTurn, .bSprint = true}, 54);
+	CHECK(Heading(Sprinter) == doctest::Approx(QuarterTurn).epsilon(0.05));
+	CHECK(HorizontalSpeed(Sprinter) > 6.5f);
+
+	// At the base speed the same turn is all but done in a fifth of a second.
+	FCharacterMover Runner = MakeMover(*World);
+	Run(*World, Runner, {}, 20);
+	Run(*World, Runner, {.Move = {0.f, 1.f}}, 90);
+	Run(*World, Runner, {.Move = {0.f, 1.f}, .Yaw = QuarterTurn}, 12);
+	CHECK(Heading(Runner) > 1.1f);
+
+	// Pulling back against a sprint plants the feet: one skid, no drift sideways, and under way the other way within half a second.
+	FCharacterMover Pivot = MakeMover(*World);
+	Run(*World, Pivot, {}, 20);
+	Run(*World, Pivot, {.Move = {0.f, 1.f}, .bSprint = true}, 90);
+	static_cast<void>(Pivot.TakeEvents());
+	const float Side = Pivot.GetState().Foot.X;
+	Run(*World, Pivot, {.Move = {0.3f, -1.f}}, 6);
+	CHECK(Pivot.GetState().Velocity.Z > 0.f);
+	CHECK(Pivot.GetState().Velocity.Z < 6.f);
+	CHECK(std::abs(Pivot.GetState().Foot.X - Side) < 0.02f);
+	Run(*World, Pivot, {.Move = {0.3f, -1.f}}, 24);
+	CHECK(Pivot.GetState().Velocity.Z < -1.f);
+	CHECK(std::ranges::count(Pivot.TakeEvents(), EMoverEvent::Skidded) == 1);
+}
+
+TEST_CASE("Long drops land heavily, costing speed and a moment to push off, unless crouch slides out of them")
+{
+	const auto Drop = [](const float Height, const bool bCrouch)
+	{
+		const auto World = MakeFloor();
+		FCharacterMover Mover = MakeMover(*World);
+		Run(*World, Mover, {}, 20);
+		Run(*World, Mover, {.Move = {0.f, 1.f}, .bSprint = true}, 90);
+		const FVector3 Foot = Mover.GetState().Foot;
+		REQUIRE(Mover.Teleport(*World, {Foot.X, Height, Foot.Z}));
+		static_cast<void>(Mover.TakeEvents());
+		bool bHeavy = false;
+		for (int Step = 0; Step < 120 && !Mover.GetState().bGrounded; ++Step)
+		{
+			Run(*World, Mover, {.Move = {0.f, 1.f}, .bCrouch = bCrouch}, 1);
+		}
+
+		Run(*World, Mover, {.Move = {0.f, 1.f}, .bCrouch = bCrouch}, 2);
+		bHeavy = std::ranges::count(Mover.TakeEvents(), EMoverEvent::LandedHeavily) > 0;
+		return std::pair{bHeavy, Mover.GetState().LandingSeconds};
+	};
+
+	// A 1 m step down is nothing; 3 m is felt, and 6 m more so.
+	CHECK(!Drop(1.f, false).first);
+	const auto [bHeavy, HeavySeconds] = Drop(3.f, false);
+	CHECK(bHeavy);
+	CHECK(HeavySeconds > 0.1f);
+	const auto [bHard, HardSeconds] = Drop(6.f, false);
+	CHECK(bHard);
+	CHECK(HardSeconds > HeavySeconds);
+	CHECK(!Drop(6.f, true).first);
+
+	// The recovery holds a run back: half a second after a hard landing the character is still slower than a run that never fell.
+	const auto World = MakeFloor();
+	FCharacterMover Mover = MakeMover(*World);
+	Run(*World, Mover, {}, 20);
+	REQUIRE(Mover.Teleport(*World, {0.f, 6.f, 0.f}));
+	Run(*World, Mover, {.Move = {0.f, 1.f}}, 60);
+	REQUIRE(Mover.GetState().bGrounded);
+	const float Slowed = HorizontalSpeed(Mover);
+	Run(*World, Mover, {.Move = {0.f, 1.f}}, 60);
+	CHECK(Slowed < 3.f);
+	CHECK(HorizontalSpeed(Mover) == doctest::Approx(4.f).epsilon(0.05));
 }
 }

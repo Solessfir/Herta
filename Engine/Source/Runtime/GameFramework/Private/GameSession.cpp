@@ -313,6 +313,9 @@ struct FPlayerSlot
 
 	// Eases the body's lean away from a wall it runs on, and remembers which wall, so the lean fades out after the run.
 	float WallLean = 0.f;
+	// The body leans into its own acceleration: into turns, forward setting off, and back braking.
+	FVector3 MoveLean{};
+	FVector3 LeanVelocity{};
 	FVector3 WallLeanNormal{};
 	// Eases between standing and crouched so the view does not snap.
 	float EyeHeight = 0.f;
@@ -1855,6 +1858,15 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 		bWallJumpedThisUpdate |= Event == EMoverEvent::WallJumped;
 		bDashedThisUpdate |= Event == EMoverEvent::Dashed;
 		bMantledThisUpdate |= Event == EMoverEvent::Mantled;
+		// A heavy landing jolts the view, harder the longer the legs take to push off again, and a skid kicks up dust.
+		if (Event == EMoverEvent::LandedHeavily)
+		{
+			Impact(0.f, 0.02f + 0.1f * Mover->GetState().LandingSeconds);
+		}
+		else if (Event == EMoverEvent::Skidded)
+		{
+			RequestEffect(PlayerKit.LandEffect, Mover->GetState().Foot);
+		}
 	}
 
 	const FMoverState& State = Mover->GetState();
@@ -2253,6 +2265,19 @@ void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
 
 	// In first person the body follows the view; in third person it turns to face where it moves and holds that facing when it stops.
 	const std::string_view Mode = Mover->GetActiveMode();
+	// Radians of lean per m/s^2, eased over a stride so fixed steps and taps do not twitch it. First person leaves the head, and the view on it, upright.
+	constexpr float LeanPerAcceleration = 0.007f;
+	constexpr float MaximumMoveLean = 0.2f;
+	const FVector3 Horizontal{State.Velocity.X, 0.f, State.Velocity.Z};
+	const bool bLeans = bThirdPerson && !Ragdoll && State.bGrounded && Mode == "Walking" && DeltaSeconds > 0.f;
+	FVector3 LeanTarget = bLeans ? (Horizontal - LeanVelocity) * (LeanPerAcceleration / DeltaSeconds) : FVector3{};
+	if (const float Length = LeanTarget.Length(); Length > MaximumMoveLean)
+	{
+		LeanTarget = LeanTarget * (MaximumMoveLean / Length);
+	}
+
+	LeanVelocity = Horizontal;
+	MoveLean = MoveLean + (LeanTarget - MoveLean) * (1.f - std::exp(-DeltaSeconds / 0.18f));
 	// A ragdoll leaves the mover where it collapsed, still holding the run's speed, which must not step the animation's feet.
 	const float Speed = Ragdoll ? 0.f : std::hypot(State.Velocity.X, State.Velocity.Z);
 	const bool bDashedBack = bDashedThisUpdate && State.Velocity.Dot(Movement::Forward(Yaw)) < -0.5f * Speed;
@@ -4662,7 +4687,12 @@ FQuaternion FGameSession::FImplementation::GetBodyRotation() const
 {
 	// A wall run tilts the body's head away from the wall around its feet, which stay beside the wall.
 	constexpr float MaximumLean = 0.35f;
-	const FQuaternion Facing = FQuaternion::FromAxisAngle(FVector3::Up(), BodyYaw);
+	FQuaternion Facing = FQuaternion::FromAxisAngle(FVector3::Up(), BodyYaw);
+	if (const float Lean = MoveLean.Length(); Lean > 1.e-4f)
+	{
+		Facing = FQuaternion::FromAxisAngle(FVector3::Up().Cross(MoveLean / Lean), Lean) * Facing;
+	}
+
 	const FVector3 Axis = FVector3::Up().Cross(WallLeanNormal);
 	if (WallLean <= 0.f || Axis.LengthSquared() < 1.e-6f)
 	{

@@ -90,7 +90,8 @@ public:
 
 	// The game's sprint acceleration, which its air control still steers with.
 	[[nodiscard]] FVector3 SprintAcceleration(const FMovementTuning& Tuning, const FMoverInput& Input, const FVector3& Velocity, float StepSeconds, bool bFalling) const;
-	[[nodiscard]] FVector3 ControllerAcceleration(const FMovementTuning& Tuning, FMoverState& State, const FMoverInput& Input, FVector3& Velocity, float StepSeconds) const;
+	// bSkidStarted reports the step the feet plant against the run.
+	[[nodiscard]] FVector3 ControllerAcceleration(const FMovementTuning& Tuning, FMoverState& State, const FMoverInput& Input, FVector3& Velocity, float StepSeconds, bool& bSkidStarted) const;
 	[[nodiscard]] static FVector3 CalcVelocity(const FMovementTuning& Tuning, const FVector3& Velocity, const FVector3& Acceleration, float StepSeconds, float SpeedModifier, float Friction);
 
 private:
@@ -151,8 +152,9 @@ FVector3 FLocomotion::WalkAcceleration(const FMovementTuning& Tuning, const FMov
 	return Forward * ((WantForward - Velocity.Dot(Forward)) * Tuning.WalkAcceleration) + Right * ((WantRight - Velocity.Dot(Right)) * Tuning.StrafeAcceleration) + Horizontal(Velocity) * (Tuning.GroundFriction * 0.1f);
 }
 
-FVector3 FLocomotion::ControllerAcceleration(const FMovementTuning& Tuning, FMoverState& State, const FMoverInput& Input, FVector3& Velocity, const float StepSeconds) const
+FVector3 FLocomotion::ControllerAcceleration(const FMovementTuning& Tuning, FMoverState& State, const FMoverInput& Input, FVector3& Velocity, const float StepSeconds, bool& bSkidStarted) const
 {
+	bSkidStarted = false;
 	if (State.StoppingSeconds > 0.f)
 	{
 		State.StoppingSeconds -= StepSeconds;
@@ -165,8 +167,41 @@ FVector3 FLocomotion::ControllerAcceleration(const FMovementTuning& Tuning, FMov
 	{
 		State.AccelerationSeconds += StepSeconds;
 		const bool bSprint = Input.bSprint && Input.Move.Y > Tuning.SprintInputForward && Input.Move.Length() > Tuning.SprintInputSize;
-		return WalkAcceleration(Tuning, Input, Velocity, bSprint);
+		FVector3 Acceleration = WalkAcceleration(Tuning, Input, Velocity, bSprint);
+
+		// Weight: a body moving faster than a run cannot change direction at once. Its path swings toward the input at the turn rate its
+		// speed allows while the speed itself eases to what the input asks for, and pushing back against it brakes straight on planted feet
+		// instead of swinging round in an arc.
+		const float Speed = Horizontal(Velocity).Length();
+		const bool bWasSkidding = State.bSkidding;
+		State.bSkidding = false;
+		if (Speed > Tuning.BaseSpeed && StepSeconds > 0.f)
+		{
+			const FVector3 Along = Horizontal(Velocity) / Speed;
+			const float Facing = Direction.Dot(Along);
+			State.bSkidding = Facing < -0.5f;
+			if (State.bSkidding)
+			{
+				Acceleration = Along * -Tuning.PivotDeceleration;
+			}
+			else
+			{
+				const float Fraction = std::clamp((Speed - Tuning.BaseSpeed) / std::max(Tuning.GroundSpeed - Tuning.BaseSpeed, 1.e-3f), 0.f, 1.f);
+				const float SteerRate = Tuning.SteerRateAtBase + (Tuning.SteerRateAtSprint - Tuning.SteerRateAtBase) * Fraction;
+				const FVector3 Side = Direction - Along * Facing;
+				const float Angle = std::atan2(Side.Length(), Facing);
+				const float Turn = std::min(Angle, SteerRate * StepSeconds);
+				const float Want = (bSprint ? Tuning.GroundSpeed : Tuning.BaseSpeed) * std::min(Input.Move.Length(), 1.f);
+				const float Parallel = std::max((Want - Speed) * Tuning.WalkAcceleration, -Tuning.PivotDeceleration) + Speed * Tuning.GroundFriction * 0.1f;
+				Acceleration = Along * Parallel + Side.Normalized() * (Speed * Turn / StepSeconds);
+			}
+		}
+
+		bSkidStarted = State.bSkidding && !bWasSkidding;
+		return State.LandingSeconds > 0.f ? Acceleration * Tuning.LandingRecoveryAcceleration : Acceleration;
 	}
+
+	State.bSkidding = false;
 
 	// A tap: letting go within 0.15 s of starting stops dead for a moment.
 	if (State.AccelerationSeconds > 0.f && State.AccelerationSeconds < 0.15f)
@@ -274,7 +309,13 @@ std::expected<EMovementStep, FPhysicsError> FWalkingMode::Step(FMoverContext& Co
 	}
 
 	FVector3 Velocity = Horizontal(State.Velocity);
-	const FVector3 Acceleration = Locomotion.ControllerAcceleration(Tuning, State, Context.Input, Velocity, Context.StepSeconds);
+	bool bSkidStarted = false;
+	const FVector3 Acceleration = Locomotion.ControllerAcceleration(Tuning, State, Context.Input, Velocity, Context.StepSeconds, bSkidStarted);
+	if (bSkidStarted)
+	{
+		Context.Events.push_back(EMoverEvent::Skidded);
+	}
+
 	Velocity = FLocomotion::CalcVelocity(Tuning, Velocity, Acceleration, Context.StepSeconds, State.bCrouched ? Tuning.CrouchSpeedModifier : 1.f, Tuning.GroundFriction);
 	if (auto Moved = Movement::Move(Context, Velocity); !Moved)
 	{
@@ -338,6 +379,7 @@ std::expected<EMovementStep, FPhysicsError> FFallingMode::Step(FMoverContext& Co
 
 	const FVector3 Acceleration = ClampLength(Horizontal(Locomotion.SprintAcceleration(Tuning, Context.Input, Current, Context.StepSeconds, true)), Maximum);
 	const FVector3 Velocity = Current + Acceleration * Context.StepSeconds + FVector3::Up() * (State.Velocity.Y - Tuning.Gravity * Context.StepSeconds);
+	State.FallSpeed = std::max(State.FallSpeed, -Velocity.Y);
 	if (auto Moved = Movement::Move(Context, Velocity); !Moved)
 	{
 		return std::unexpected(Moved.error());
@@ -1243,6 +1285,17 @@ void FCharacterMover::Land(FMoverContext& Context)
 		}
 	}
 
+	// Weight: a long drop takes speed and a moment to push off again, unless crouch slides out of it.
+	const float Impact = std::exchange(State.FallSpeed, 0.f);
+	if (Impact > Tuning.HeavyLandingSpeed && !Context.Input.bCrouch)
+	{
+		const float Hardness = std::clamp((Impact - Tuning.HeavyLandingSpeed) / std::max(Tuning.HardLandingSpeed - Tuning.HeavyLandingSpeed, 1.e-3f), 0.f, 1.f);
+		const float Keep = Tuning.HeavyLandingKeep + (Tuning.HardLandingKeep - Tuning.HeavyLandingKeep) * Hardness;
+		State.Velocity = {State.Velocity.X * Keep, State.Velocity.Y, State.Velocity.Z * Keep};
+		State.LandingSeconds = Tuning.HeavyLandingRecoverySeconds + (Tuning.LandingRecoverySeconds - Tuning.HeavyLandingRecoverySeconds) * Hardness;
+		Context.Events.push_back(EMoverEvent::LandedHeavily);
+	}
+
 	State.Takeoff = EMoverTakeoff::Other;
 	State.SlideWindowSeconds = Tuning.SlideLandSeconds;
 	Context.Events.push_back(EMoverEvent::Landed);
@@ -1265,6 +1318,11 @@ std::expected<void, FPhysicsError> FCharacterMover::Step(FPhysicsWorld& World, c
 	State.bSprintReleased = !Input.bSprint && bSprintWasHeld;
 	bSprintWasHeld = Input.bSprint;
 	FMoverContext Context{.World = World, .Character = Character, .Tuning = Tuning, .Input = Input, .State = State, .StepSeconds = StepSeconds, .Events = Events};
+	// Only a plain fall builds up a landing; a wall run, dash, or mantle on the way starts it over.
+	if (Active != FallingMode)
+	{
+		State.FallSpeed = 0.f;
+	}
 
 	// Walking and falling swap by ground contact at the start of a step, as when a platform rises under a falling player.
 	if (Active == FallingMode && State.bGrounded && State.Velocity.Y <= 0.f)
@@ -1327,6 +1385,7 @@ std::expected<void, FPhysicsError> FCharacterMover::Step(FPhysicsWorld& World, c
 
 	State.JumpBufferSeconds = std::max(0.f, State.JumpBufferSeconds - StepSeconds);
 	State.SlideWindowSeconds = std::max(0.f, State.SlideWindowSeconds - StepSeconds);
+	State.LandingSeconds = std::max(0.f, State.LandingSeconds - StepSeconds);
 	return {};
 }
 

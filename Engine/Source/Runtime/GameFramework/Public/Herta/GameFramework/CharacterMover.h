@@ -112,6 +112,23 @@ struct FMovementTuning
 	float MantleMinimumHeight = 0.5f;
 	float MantleMaximumHeight = 1.9f;
 	float MantleReach = 0.3f;
+
+	// Herta's weight, which the game's runner does not have. Above the base speed the run turns at most this fast, from SteerRateAtBase
+	// down to SteerRateAtSprint at the ground speed, so a sprint sweeps round where a walk turns on the spot. Pushing against a run plants
+	// the feet and brakes in a line at up to PivotDeceleration before setting off the other way.
+	float SteerRateAtBase = 9.f;
+	float SteerRateAtSprint = 4.f;
+	float PivotDeceleration = 30.f;
+	// Landing faster than HeavyLandingSpeed, a 2 m drop, keeps HeavyLandingKeep of the speed, falling to HardLandingKeep at
+	// HardLandingSpeed, a 5 m drop, and the legs push off at LandingRecoveryAcceleration of their strength for up to
+	// LandingRecoverySeconds. Crouch held through the landing slides out of it instead, as a roll would.
+	float HeavyLandingSpeed = 8.f;
+	float HardLandingSpeed = 13.f;
+	float HeavyLandingKeep = 0.7f;
+	float HardLandingKeep = 0.15f;
+	float HeavyLandingRecoverySeconds = 0.15f;
+	float LandingRecoverySeconds = 0.45f;
+	float LandingRecoveryAcceleration = 0.3f;
 };
 
 struct FMoverInput
@@ -144,6 +161,10 @@ enum class EMoverEvent : std::uint8_t
 	SlideEnded,
 	WallRunStarted,
 	Dashed,
+	// A landing hard enough to cost speed.
+	LandedHeavily,
+	// The feet planted against a run to turn it around.
+	Skidded,
 };
 
 // What every movement mode reads and writes, so one mode hands over to the next without losing speed or timers.
@@ -174,6 +195,10 @@ struct FMoverState
 	// The controller's tap-stop: letting go within 0.15 s of starting stops dead for 0.25 s.
 	float AccelerationSeconds = 0.f;
 	float StoppingSeconds = 0.f;
+	// The fastest this fall has gone down, which decides how heavy the landing is, and what is left of a heavy landing's recovery.
+	float FallSpeed = 0.f;
+	float LandingSeconds = 0.f;
+	bool bSkidding = false;
 };
 
 struct FMoverContext
