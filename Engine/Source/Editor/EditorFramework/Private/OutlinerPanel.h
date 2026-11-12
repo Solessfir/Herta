@@ -72,6 +72,17 @@ struct FOutlinerPanelState
 	FObjectId RenameObject{};
 	FObjectId SelectedFolder{};
 	FObjectId RenameFolder{};
+
+	// Text the panel sets each frame in the editor's language; the list draws it without the context.
+	struct FTexts
+	{
+		std::string Selected = "selected";
+		std::string Lock = "Lock, so viewport clicks pass through";
+		std::string Locked = "Locked: viewport clicks pass through. Click to unlock.";
+		std::string Hide = "Hide in the editor viewport";
+		std::string Hidden = "Hidden in the editor viewport. Click to show.";
+	} Texts;
+
 	// The type chip in effect, as an EPreviewObjectCategory, or -1 for all.
 	int CategoryFilter = -1;
 	// Editor-only and kept per user for each level: hidden entities do not draw, light, or pick in the viewport, and locked ones do not pick.

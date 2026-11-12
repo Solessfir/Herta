@@ -722,13 +722,17 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::AlignTextToFramePadding();
 		// Whatever runs in the background names itself here; the dot is amber while anything does.
 		const std::size_t Compiling = Implementation->MaterialShaders ? Implementation->MaterialShaders->GetCompilingCount() : 0;
-		const std::string CompilingText = Compiling == 1 ? "Compiling 1 shader..." : std::format("Compiling {} shaders...", Compiling);
-		const char* const Work = Implementation->bProjectBusy ? "Loading project..." : Implementation->Assets && Implementation->Assets->IsImporting()      ? "Importing..."
-		                                                                           : Implementation->Assets && Implementation->Assets->IsScanning()         ? "Scanning content..."
-		                                                                           : Implementation->Navigation && Implementation->Navigation->IsBuilding() ? "Building navigation..."
-		                                                                           : Compiling > 0                                                          ? CompilingText.c_str()
-		                                                                                                                                                    : nullptr;
-		ImGui::TextDisabled("%s", Work ? Work : "Ready");
+		const std::string CompilingText = Localization.Format(Editor::Status_Compiling, std::array{FMessageArgument{"count", static_cast<std::int64_t>(Compiling)}});
+		const std::string LoadingText = Localization.Format(Editor::Status_LoadingProject);
+		const std::string ImportingText = Localization.Format(Editor::Status_Importing);
+		const std::string ScanningText = Localization.Format(Editor::Status_Scanning);
+		const std::string NavigationText = Localization.Format(Editor::Status_Navigation);
+		const char* const Work = Implementation->bProjectBusy ? LoadingText.c_str() : Implementation->Assets && Implementation->Assets->IsImporting()      ? ImportingText.c_str()
+		                                                                          : Implementation->Assets && Implementation->Assets->IsScanning()         ? ScanningText.c_str()
+		                                                                          : Implementation->Navigation && Implementation->Navigation->IsBuilding() ? NavigationText.c_str()
+		                                                                          : Compiling > 0                                                          ? CompilingText.c_str()
+		                                                                                                                                                   : nullptr;
+		ImGui::TextDisabled("%s", Work ? Work : Localization.Format(Editor::Status_Ready).c_str());
 		if (Implementation->bProjectBusy)
 		{
 			ImGui::SameLine();
@@ -742,17 +746,17 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::GetWindowDrawList()->AddCircleFilled({DotPosition.x + 4.f * Scale, ReadyCenterY}, 2.5f * Scale, Work ? PackColor(ToolUITheme::Warning) : IM_COL32(164, 189, 148, 255));
 
 		// The right end says what Ctrl+Z would take back and whether the level is saved.
-		const std::string Undo = Implementation->Level->CanUndo() ? std::format("Undo: {}", Implementation->Level->GetUndoLabel()) : std::string{};
+		const std::string Undo = Implementation->Level->CanUndo() ? Localization.Format(Editor::Status_Undo, std::array{FMessageArgument{"action", std::string(Implementation->Level->GetUndoLabel())}}) : std::string{};
 		std::string Saved;
 		const bool bDirty = Implementation->Level->IsDirty();
 		if (bDirty)
 		{
-			Saved = "Unsaved changes";
+			Saved = Localization.Format(Editor::Status_Unsaved);
 		}
 		else if (Implementation->LastLevelSave)
 		{
 			const auto Minutes = std::chrono::duration_cast<std::chrono::minutes>(std::chrono::steady_clock::now() - *Implementation->LastLevelSave).count();
-			Saved = Minutes < 1 ? "Saved just now" : std::format("Saved {} min ago", Minutes);
+			Saved = Minutes < 1 ? Localization.Format(Editor::Status_SavedNow) : Localization.Format(Editor::Status_SavedMinutes, std::array{FMessageArgument{"minutes", static_cast<std::int64_t>(Minutes)}});
 		}
 
 		// Plugins come first on the right, such as the Git branch.

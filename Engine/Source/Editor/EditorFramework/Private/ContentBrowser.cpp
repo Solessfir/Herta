@@ -5,6 +5,7 @@
 #include "Herta/GameplayGraph/GameplayGraph.h"
 #include "Herta/Platform/FileDialog.h"
 #include "Herta/StateTreeCompiler/StateTreeCompiler.h"
+#include "Herta/ToolUI/EditorText.h"
 #include "Herta/ToolUI/ToolUI.h"
 #include "NumericField.h"
 
@@ -192,15 +193,16 @@ void DrawAssetModals(FContentBrowserState& State, FPreviewAssets& Assets)
 struct FContentTypeChip
 {
 	const char* Label;
+	FTextId Text;
 	FToolUIColor Color;
 	std::array<std::string_view, 3> Importers;
 };
 
 constexpr std::array<FContentTypeChip, 4> ContentTypeChips{{
-    {.Label = "Models", .Color = ToolUITheme::TypeMesh, .Importers = {"Gltf", "Blender", ""}},
-    {.Label = "Materials", .Color = ToolUITheme::TypeLight, .Importers = {"Material", "Texture", ""}},
-    {.Label = "Sounds", .Color = ToolUITheme::TypeAudio, .Importers = {"Sound", "AudioGraph", ""}},
-    {.Label = "Graphs", .Color = ToolUITheme::TypeEffect, .Importers = {"VfxGraph", "GameplayGraph", "StateTree"}},
+    {.Label = "Models", .Text = Text::Editor::Content_Models, .Color = ToolUITheme::TypeMesh, .Importers = {"Gltf", "Blender", ""}},
+    {.Label = "Materials", .Text = Text::Editor::Content_Materials, .Color = ToolUITheme::TypeLight, .Importers = {"Material", "Texture", ""}},
+    {.Label = "Sounds", .Text = Text::Editor::Content_Sounds, .Color = ToolUITheme::TypeAudio, .Importers = {"Sound", "AudioGraph", ""}},
+    {.Label = "Graphs", .Text = Text::Editor::Content_Graphs, .Color = ToolUITheme::TypeEffect, .Importers = {"VfxGraph", "GameplayGraph", "StateTree"}},
 }};
 
 // The chip an asset falls under, or -1 for importers no chip names.
@@ -760,7 +762,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			return bClicked;
 		};
 
-		if (IconButton("##ContentSidebar", EToolUIMenuIcon::Panel, State.bSidebarOpen, "Show or hide the folder tree"))
+		if (IconButton("##ContentSidebar", EToolUIMenuIcon::Panel, State.bSidebarOpen, ToolUI.Text(Text::Editor::Content_TreeTip, "Show or hide the folder tree").c_str()))
 		{
 			State.bSidebarOpen = !State.bSidebarOpen;
 		}
@@ -775,7 +777,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		float ChipsWidth = 0.f;
 		for (const FContentTypeChip& Chip : ContentTypeChips)
 		{
-			ChipsWidth += ImGui::CalcTextSize(Chip.Label).x + 32.f * Scale + 4.f * Scale;
+			ChipsWidth += ImGui::CalcTextSize(ToolUI.Text(Chip.Text, Chip.Label).c_str()).x + 32.f * Scale + 4.f * Scale;
 		}
 
 		const float PathWidth = ImGui::CalcTextSize(State.Folder.c_str()).x + static_cast<float>(std::ranges::count(State.Folder, '/')) * 22.f * Scale + 16.f * Scale;
@@ -835,7 +837,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 
 		ImGui::SetNextItemWidth(-(ViewSize + Spacing + (bShowChips ? ChipsWidth + Spacing : 0.f)));
 
-		const std::string SearchHint = std::format("Search in {}", Leaf(State.Folder));
+		const std::string SearchHint = ToolUI.Text(Text::Editor::Content_SearchIn, std::format("Search in {}", Leaf(State.Folder)), std::array{FMessageArgument{"folder", std::string(Leaf(State.Folder))}});
 		if (ToolUI.DrawSearchField("##ContentSearch", SearchHint.c_str(), State.Search.data(), State.Search.size()))
 		{
 			if (Assets && !FinishFolderRename(State, *Assets))
@@ -858,7 +860,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			{
 				ImGui::SameLine(0.f, Chip == 0 ? Spacing : 4.f * Scale);
 				ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ChipOffset);
-				if (ToolUIChip(ContentTypeChips[Chip].Label, State.TypeFilter == static_cast<int>(Chip), &ContentTypeChips[Chip].Color))
+				if (ToolUIChip((ToolUI.Text(ContentTypeChips[Chip].Text, ContentTypeChips[Chip].Label) + "##ContentType" + std::to_string(Chip)).c_str(), State.TypeFilter == static_cast<int>(Chip), &ContentTypeChips[Chip].Color))
 				{
 					State.TypeFilter = State.TypeFilter == static_cast<int>(Chip) ? -1 : static_cast<int>(Chip);
 					State.Filter();
@@ -873,7 +875,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		}
 
 		ImGui::SameLine(RowRight - ViewSize - ImGui::GetWindowPos().x);
-		if (IconButton("##ContentView", EToolUIMenuIcon::Grid, false, "View options. Ctrl+Wheel over the grid also changes the thumbnail size."))
+		if (IconButton("##ContentView", EToolUIMenuIcon::Grid, false, ToolUI.Text(Text::Editor::Content_ViewTip, "View options. Ctrl+Wheel over the grid also changes the thumbnail size.").c_str()))
 		{
 			ImGui::OpenPopup("##ContentViewOptions");
 		}
@@ -882,7 +884,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12.f * Scale, 10.f * Scale});
 		if (ImGui::BeginPopup("##ContentViewOptions"))
 		{
-			ImGui::TextDisabled("Thumbnail size");
+			ImGui::TextDisabled("%s", ToolUI.Text(Text::Editor::Content_ThumbnailSize, "Thumbnail size").c_str());
 			ImGui::SetNextItemWidth(180.f * Scale);
 			const std::string ZoomLabel = State.Zoom < 0.5f ? "List" : std::format("{:.0f} px", 48.f + State.Zoom * 16.f);
 			DrawNumericSliderFloat("##ContentZoomLevel", &State.Zoom, 0.f, 9.f, ZoomLabel.c_str(), ImGuiSliderFlags_AlwaysClamp);

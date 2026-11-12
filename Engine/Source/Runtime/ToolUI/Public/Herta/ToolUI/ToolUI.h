@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Herta/Localization/Localization.h"
 #include "Herta/ToolUI/Theme.h"
 
 #include <algorithm>
@@ -284,6 +285,9 @@ public:
 
 	// The editor's text, which outlives the context; without it the workspace shows English.
 	void SetText(const FLocalization* Text) noexcept;
+	// A message in the editor's language, or English when no text is set, as in tests. English is the source text with its arguments
+	// already filled in.
+	[[nodiscard]] std::string Text(FTextId Id, std::string_view English, std::span<const FMessageArgument> Arguments = {}) const;
 	void SetAppearance(FEditorAppearance Appearance) noexcept;
 	// Vertical sync, as the descriptor set it or the user last changed it; a change reaches the descriptor's VSyncChanged.
 	[[nodiscard]] bool IsVSyncEnabled() const noexcept;

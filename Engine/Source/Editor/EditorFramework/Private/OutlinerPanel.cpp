@@ -1,5 +1,6 @@
 #include "OutlinerPanel.h"
 
+#include "Herta/ToolUI/EditorText.h"
 #include "Herta/ToolUI/ToolUI.h"
 #include "PreviewLevel.h"
 
@@ -637,7 +638,7 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 			// The selection count rides at the right of the label header, which stays pinned while the list scrolls.
 			if (!Selection.Indices.empty())
 			{
-				const std::string Selected = std::format("{} selected", Selection.Indices.size());
+				const std::string& Selected = State.Texts.Selected;
 				const float Right = Table->Columns[0].WorkMaxX - 4.f * Scale;
 				const float Left = Right - ImGui::CalcTextSize(Selected.c_str()).x;
 				if (Left > Table->Columns[0].WorkMinX + ImGui::CalcTextSize("Item Label").x + 12.f * Scale)
@@ -913,12 +914,12 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 
 				if (bShowLock)
 				{
-					DrawRowButton(LockX, bLockedObject ? EToolUIMenuIcon::LockClosed : EToolUIMenuIcon::LockOpen, bLockedObject, bLockHit, bLockedObject ? "Locked: viewport clicks pass through. Click to unlock." : "Lock, so viewport clicks pass through");
+					DrawRowButton(LockX, bLockedObject ? EToolUIMenuIcon::LockClosed : EToolUIMenuIcon::LockOpen, bLockedObject, bLockHit, (bLockedObject ? State.Texts.Locked : State.Texts.Lock).c_str());
 				}
 
 				if (bShowEye)
 				{
-					DrawRowButton(EyeX, bHiddenObject ? EToolUIMenuIcon::Hidden : EToolUIMenuIcon::Visible, bHiddenObject, bEyeHit, bHiddenObject ? "Hidden in the editor viewport. Click to show." : "Hide in the editor viewport");
+					DrawRowButton(EyeX, bHiddenObject ? EToolUIMenuIcon::Hidden : EToolUIMenuIcon::Visible, bHiddenObject, bEyeHit, (bHiddenObject ? State.Texts.Hidden : State.Texts.Hide).c_str());
 				}
 
 				ImGui::TableSetColumnIndex(1);
@@ -1078,20 +1079,33 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 	// Type chips narrow the list; the selection count sits at the row's right end when it fits.
 	const float Scale = ImGui::GetFontSize() / 15.f;
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4.f * Scale, ImGui::GetStyle().ItemSpacing.y});
-	if (ToolUIChip("All##OutlinerAll", State.CategoryFilter < 0))
+	using namespace Text::Editor;
+	const std::size_t SelectedCount = Selection.Indices.size();
+	State.Texts = {
+	    .Selected = ToolUI.Text(Outliner_Selected, std::format("{} selected", SelectedCount), std::array{FMessageArgument{"count", static_cast<std::int64_t>(SelectedCount)}}),
+	    .Lock = ToolUI.Text(Outliner_Lock, State.Texts.Lock),
+	    .Locked = ToolUI.Text(Outliner_Locked, State.Texts.Locked),
+	    .Hide = ToolUI.Text(Outliner_Hide, State.Texts.Hide),
+	    .Hidden = ToolUI.Text(Outliner_Hidden, State.Texts.Hidden),
+	};
+
+	if (ToolUIChip((ToolUI.Text(Outliner_All, "All") + "##OutlinerAll").c_str(), State.CategoryFilter < 0))
 	{
 		State.CategoryFilter = -1;
 	}
 
-	constexpr std::array<std::pair<EPreviewObjectCategory, const char*>, 4> Chips{{
-	    {EPreviewObjectCategory::Mesh, "Mesh"},
-	    {EPreviewObjectCategory::Light, "Light"},
-	    {EPreviewObjectCategory::Character, "Character"},
-	    {EPreviewObjectCategory::Physics, "Physics"},
+	const std::array<std::pair<EPreviewObjectCategory, std::string>, 4> Chips{{
+	    {EPreviewObjectCategory::Mesh, ToolUI.Text(Outliner_Mesh, "Mesh")},
+	    {EPreviewObjectCategory::Light, ToolUI.Text(Outliner_Light, "Light")},
+	    {EPreviewObjectCategory::Character, ToolUI.Text(Outliner_Character, "Character")},
+	    {EPreviewObjectCategory::Physics, ToolUI.Text(Outliner_Physics, "Physics")},
 	}};
 
-	for (const auto& [Category, Label] : Chips)
+	for (const auto& [Category, ChipText] : Chips)
 	{
+		// The ID stays the same across languages.
+		const std::string ChipLabel = std::format("{}##Category{}", ChipText, static_cast<int>(Category));
+		const char* const Label = ChipLabel.c_str();
 		const FToolUIColor Color = GetPreviewCategoryColor(Category);
 		const float ChipWidth = ImGui::CalcTextSize(Label).x + 32.f * Scale;
 		if (ImGui::GetItemRectMax().x + 4.f * Scale + ChipWidth <= ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)

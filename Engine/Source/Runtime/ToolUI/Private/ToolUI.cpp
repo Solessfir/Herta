@@ -2510,6 +2510,11 @@ void FToolUIContext::SetNextDocumentIcon(const EToolUIMenuIcon Icon) noexcept
 	Implementation->NextDocumentIcon = Icon;
 }
 
+std::string FToolUIContext::Text(const FTextId Id, const std::string_view English, const std::span<const FMessageArgument> Arguments) const
+{
+	return Implementation->Text ? Implementation->Text->Format(Id, Arguments) : std::string(English);
+}
+
 bool FToolUIContext::IsVSyncEnabled() const noexcept
 {
 	return Implementation->bVSync;

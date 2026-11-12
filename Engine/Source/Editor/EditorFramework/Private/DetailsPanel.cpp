@@ -5,6 +5,7 @@
 #include "Herta/EditorCore/PreviewScaleEdit.h"
 #include "Herta/EditorCore/TransformText.h"
 #include "Herta/Level/LevelDescriptors.h"
+#include "Herta/ToolUI/EditorText.h"
 #include "Herta/ToolUI/ToolUI.h"
 #include "NumericField.h"
 #include "PreviewLevel.h"
@@ -229,7 +230,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		const bool bConfirm = ImGui::IsKeyPressed(ImGuiKey_Enter, ImGuiInputFlags_None, Owner) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, ImGuiInputFlags_None, Owner);
 		const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, Owner);
 		ImGui::SetNextItemWidth(-FLT_MIN);
-		const bool bSearchChanged = ToolUI.DrawSearchField("##ComponentSearch", "Search components", State.ComponentSearch.data(), State.ComponentSearch.size());
+		const bool bSearchChanged = ToolUI.DrawSearchField("##ComponentSearch", ToolUI.Text(Text::Editor::Components_Search, "Search components").c_str(), State.ComponentSearch.data(), State.ComponentSearch.size());
 		const std::array<std::string_view, 23> Names{"Static Mesh", "Rigid Body", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Soft Body", "Mover", "Trigger", "Constraint", "Destructible", "Character", "Audio Emitter", "Audio Listener", "Particle Emitter", "Navigation Bounds", "Navigation Obstacle", "AI Agent", "Gameplay Graph", "Player"};
 		const std::array Added{Components.bAllMesh, Components.bAllBody, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllSkyAtmosphere, Components.bAllHeightFog, Components.bAllSoftBody, Components.bAllMover, Components.bAllTrigger, Components.bAllConstraint, Components.bAllDestructible, Components.bAllCharacter, Components.bAllAudioEmitter, Components.bAllAudioListener, Components.bAllParticleEmitter, Components.bAllNavigationBounds, Components.bAllNavigationObstacle, Components.bAllAiAgent, Components.bAllGameplayGraph, Components.bAllPlayer};
 		constexpr std::array Actions{
@@ -261,7 +262,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		// Without a search the components list by system under a heading each; a search ranks them in one flat list.
 		struct FComponentGroup
 		{
-			std::string_view Heading;
+			std::string Heading;
 			std::span<const int> Members;
 		};
 
@@ -270,7 +271,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		constexpr std::array Gameplay{14, 22, 20, 21};
 		constexpr std::array Audio{15, 16};
 		constexpr std::array Navigation{18, 19};
-		const std::array<FComponentGroup, 5> Groups{{{"Rendering", Rendering}, {"Physics", Physics}, {"Gameplay", Gameplay}, {"Audio", Audio}, {"Navigation", Navigation}}};
+		const std::array<FComponentGroup, 5> Groups{{{ToolUI.Text(Text::Editor::Components_Rendering, "Rendering"), Rendering}, {ToolUI.Text(Text::Editor::Components_Physics, "Physics"), Physics}, {ToolUI.Text(Text::Editor::Components_Gameplay, "Gameplay"), Gameplay}, {ToolUI.Text(Text::Editor::Components_Audio, "Audio"), Audio}, {ToolUI.Text(Text::Editor::Components_Navigation, "Navigation"), Navigation}}};
 		const auto Matches = SearchAssets(Names, State.ComponentSearch.data());
 		// Each listed component with its group, or -1 in a search.
 		std::vector<std::pair<int, int>> Listed;
@@ -318,9 +319,10 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 
 		if (Listed.empty())
 		{
-			ImGui::TextDisabled("No matching components");
+			ImGui::TextDisabled("%s", ToolUI.Text(Text::Editor::Components_None, "No matching components").c_str());
 		}
 
+		const std::string AddedText = ToolUI.Text(Text::Editor::Components_Added, "Added");
 		int ShownGroup = -1;
 		for (const auto& [Member, Group] : Listed)
 		{
@@ -328,9 +330,9 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 			if (Group != ShownGroup && Group >= 0)
 			{
 				ShownGroup = Group;
-				const std::string_view Heading = Groups[static_cast<std::size_t>(Group)].Heading;
+				const std::string& Heading = Groups[static_cast<std::size_t>(Group)].Heading;
 				ImGui::Dummy({0.f, 2.f * Scale});
-				ImGui::TextDisabled("%.*s", static_cast<int>(Heading.size()), Heading.data());
+				ImGui::TextDisabled("%s", Heading.c_str());
 			}
 
 			ImGui::BeginDisabled(Added[Index]);
@@ -343,7 +345,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 			                                                              : Index == 8               ? EToolUIMenuIcon::Fog
 			                                                              : Index >= 2 && Index <= 6 ? EToolUIMenuIcon::Light
 			                                                                                         : EToolUIMenuIcon::Entity;
-			const bool bPressed = ToolUIMenuItem(Names[Index], Icon, nullptr, Added[Index] ? "Added" : nullptr);
+			const bool bPressed = ToolUIMenuItem(Names[Index], Icon, nullptr, Added[Index] ? AddedText.c_str() : nullptr);
 			const ImVec2 Minimum = ImGui::GetItemRectMin();
 			const ImVec2 Maximum = ImGui::GetItemRectMax();
 			// The row's left edge carries the component's type color, as its header will in Details.

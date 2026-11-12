@@ -1,6 +1,7 @@
 #include "PerformancePanel.h"
 
 #include "Herta/Renderer/Visuals.h"
+#include "Herta/ToolUI/EditorText.h"
 #include "Herta/ToolUI/ToolUI.h"
 
 #include <imgui.h>
@@ -259,22 +260,24 @@ void DrawPerformancePanel(FToolUIContext& ToolUI, bool& bOpen, FPerformancePanel
 	}
 
 	// Four headline numbers, each a tile; the three timings carry their graph line's color.
+	using namespace Text::Editor;
 	const float Frame = State.Frame.GetAverage(AverageWindow);
 	const float Gap = 4.f * Scale;
 	const float TileWidth = std::floor((ImGui::GetContentRegionAvail().x - Gap * 3.f) / 4.f);
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Gap, 6.f * Scale});
-	DrawStatTile("Frame", FrameColor, std::format("{:.1f}", Frame), "ms", TileWidth);
+	DrawStatTile(ToolUI.Text(Perf_Frame, "Frame").c_str(), FrameColor, std::format("{:.1f}", Frame), "ms", TileWidth);
 	ImGui::SameLine();
-	DrawStatTile("GPU", GpuColor, std::format("{:.1f}", State.Gpu.GetAverage(AverageWindow)), "ms", TileWidth);
+	DrawStatTile(ToolUI.Text(Perf_Gpu, "GPU").c_str(), GpuColor, std::format("{:.1f}", State.Gpu.GetAverage(AverageWindow)), "ms", TileWidth);
 	ImGui::SameLine();
-	DrawStatTile("CPU", CpuColor, std::format("{:.1f}", State.Cpu.GetAverage(AverageWindow)), "ms", TileWidth);
+	DrawStatTile(ToolUI.Text(Perf_Cpu, "CPU").c_str(), CpuColor, std::format("{:.1f}", State.Cpu.GetAverage(AverageWindow)), "ms", TileWidth);
 	ImGui::SameLine();
-	DrawStatTile("Draws", 0, std::to_string(Sample.DrawCount), "", TileWidth);
+	DrawStatTile(ToolUI.Text(Perf_Draws, "Draws").c_str(), 0, std::to_string(Sample.DrawCount), "", TileWidth);
 	ImGui::PopStyleVar();
 
 	const std::array Series{FGraphSeries{.History = &State.Frame, .Color = FrameColor}, FGraphSeries{.History = &State.Cpu, .Color = CpuColor}, FGraphSeries{.History = &State.Gpu, .Color = GpuColor}};
 	DrawHistoryGraph("##FrameGraph", Series, 96.f * Scale, 1000.f / 60.f);
-	const char* const PauseLabel = State.bPaused ? "Resume" : "Pause";
+	const std::string PauseText = State.bPaused ? ToolUI.Text(Perf_Resume, "Resume") : ToolUI.Text(Perf_Pause, "Pause");
+	const char* const PauseLabel = PauseText.c_str();
 	ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - ImGui::CalcTextSize(PauseLabel).x - ImGui::GetStyle().FramePadding.x * 2.f);
 	if (ImGui::SmallButton(PauseLabel))
 	{
@@ -296,12 +299,12 @@ void DrawPerformancePanel(FToolUIContext& ToolUI, bool& bOpen, FPerformancePanel
 		}
 	}
 
-	DrawGroupHeading("GPU passes", std::format("{:.2f} ms", Total));
+	DrawGroupHeading(ToolUI.Text(Perf_GpuPasses, "GPU passes").c_str(), std::format("{:.2f} ms", Total));
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.f, 1.f * Scale});
 	if (State.Passes.empty())
 	{
 		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.f * Scale);
-		ImGui::TextDisabled("No GPU timings reported");
+		ImGui::TextDisabled("%s", ToolUI.Text(Perf_NoTimings, "No GPU timings reported").c_str());
 	}
 
 	for (const FPerformancePassHistory& Pass : State.Passes)
@@ -311,23 +314,23 @@ void DrawPerformancePanel(FToolUIContext& ToolUI, bool& bOpen, FPerformancePanel
 
 	if (Sample.GpuUIMilliseconds)
 	{
-		DrawPassRow("Editor UI", static_cast<float>(*Sample.GpuUIMilliseconds), Ceiling, false);
+		DrawPassRow(ToolUI.Text(Perf_EditorUi, "Editor UI"), static_cast<float>(*Sample.GpuUIMilliseconds), Ceiling, false);
 	}
 
 	ImGui::PopStyleVar();
 
-	DrawGroupHeading("Renderer");
-	const auto ValueRow = [Scale](const char* const Label, const std::string& Value)
+	DrawGroupHeading(ToolUI.Text(Perf_Renderer, "Renderer").c_str());
+	const auto ValueRow = [Scale](const std::string& LabelText, const std::string& Value)
 	{
 		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.f * Scale);
-		ImGui::TextDisabled("%s", Label);
+		ImGui::TextDisabled("%s", LabelText.c_str());
 		ImGui::SameLine(ImGui::GetContentRegionMax().x - 8.f * Scale - ImGui::CalcTextSize(Value.c_str()).x);
 		ImGui::TextUnformatted(Value.c_str());
 	};
 
-	ValueRow("Lights", std::format("{} / {}", Sample.EnabledLights, Sample.MaximumLights));
-	ValueRow("Render targets", std::format("{:.1f} MiB", static_cast<double>(Sample.RenderTargetBytes) / (1024. * 1024.)));
-	ValueRow("Shadows", std::format("{} px cascades, {} px tiles", ShadowCascadeResolution, ShadowTileResolution));
+	ValueRow(ToolUI.Text(Perf_Lights, "Lights"), std::format("{} / {}", Sample.EnabledLights, Sample.MaximumLights));
+	ValueRow(ToolUI.Text(Perf_RenderTargets, "Render targets"), std::format("{:.1f} MiB", static_cast<double>(Sample.RenderTargetBytes) / (1024. * 1024.)));
+	ValueRow(ToolUI.Text(Perf_Shadows, "Shadows"), ToolUI.Text(Perf_ShadowSizes, std::format("{} px cascades, {} px tiles", ShadowCascadeResolution, ShadowTileResolution), std::array{FMessageArgument{"cascade", static_cast<std::int64_t>(ShadowCascadeResolution)}, FMessageArgument{"tile", static_cast<std::int64_t>(ShadowTileResolution)}}));
 	ToolUI.EndPanel();
 }
 }

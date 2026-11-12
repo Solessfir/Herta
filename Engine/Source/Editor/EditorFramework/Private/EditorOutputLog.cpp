@@ -1,4 +1,5 @@
 #include "EditorFrameworkPrivate.h"
+#include "Herta/ToolUI/EditorText.h"
 
 namespace Herta
 {
@@ -210,15 +211,16 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	const std::size_t WarningCount = OutputLog->GetLevelCount(ELogLevel::Warning);
 	const std::size_t ErrorCount = OutputLog->GetLevelCount(ELogLevel::Error) + OutputLog->GetLevelCount(ELogLevel::Critical);
 	OutputLogWarningCount = WarningCount;
-	const std::string WarningsLabel = std::format("Warnings {}###LogWarnings", WarningCount);
-	const std::string ErrorsLabel = std::format("Errors {}###LogErrors", ErrorCount);
+	const std::string WarningsLabel = Localization.Format(Text::Editor::Log_Warnings, std::array{FMessageArgument{"count", static_cast<std::int64_t>(WarningCount)}}) + "###LogWarnings";
+	const std::string ErrorsLabel = Localization.Format(Text::Editor::Log_Errors, std::array{FMessageArgument{"count", static_cast<std::int64_t>(ErrorCount)}}) + "###LogErrors";
+	const std::string AllLabel = Localization.Format(Text::Editor::Log_All) + "###LogAll";
 	const auto ChipWidth = [ToolbarScale](const std::string& Label)
 	{
 		return std::round(ImGui::CalcTextSize(Label.c_str(), nullptr, true).x + 18.f * ToolbarScale);
 	};
 
 	const float ChipSpacing = 4.f * ToolbarScale;
-	const float FilterWidth = ChipWidth("All") + ChipWidth(WarningsLabel) + ChipWidth(ErrorsLabel) + ChipSpacing * 2.f;
+	const float FilterWidth = ChipWidth(AllLabel) + ChipWidth(WarningsLabel) + ChipWidth(ErrorsLabel) + ChipSpacing * 2.f;
 	const float ButtonsWidth = FilterWidth + ButtonWidth("Options") + ClearWidth + CopyWidth + Spacing * 3.f;
 	const float AvailableWidth = ImGui::GetContentRegionAvail().x;
 	const bool bSingleRow = AvailableWidth >= ButtonsWidth + Spacing + 160.f * ToolbarScale;
@@ -253,7 +255,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	const float ChipOffset = (ImGui::GetFrameHeight() - std::round(22.f * ToolbarScale)) * 0.5f;
 	const float ChipRowY = ImGui::GetCursorPosY();
 	ImGui::SetCursorPosY(ChipRowY + ChipOffset);
-	if (ToolUIChip("All###LogAll", !bOnlyWarnings && !bOnlyErrors))
+	if (ToolUIChip(AllLabel.c_str(), !bOnlyWarnings && !bOnlyErrors))
 	{
 		Show({});
 	}
