@@ -328,6 +328,7 @@ struct FEditorFramework::FImplementation
 	void RefreshVisuals();
 	void DrawHdrDisplaySettings(FEditorDisplay& Display);
 	void DrawPreferencesTab();
+	void SynchronizeOutlinerFlags();
 	void DrawCommandPalette();
 	void DrawProjectSettingsTab();
 	void RefreshSelectedVisualEntities();
@@ -487,6 +488,9 @@ struct FEditorFramework::FImplementation
 	FEditorAssetThumbnail DraftMaterialThumbnail;
 	std::vector<FMaterialTextureOption> MaterialTextureOptions;
 	FOutlinerPanelState OutlinerPanelState;
+	// The level whose hidden and locked entities are loaded, and what was last read or written for it.
+	std::optional<std::filesystem::path> OutlinerFlagsLevel;
+	FOutlinerFlags SavedOutlinerFlags;
 	bool bPerformanceOpen = true;
 	bool bWorldSettingsOpen = true;
 	bool bSelectDetailsTab = true;

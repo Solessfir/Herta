@@ -209,6 +209,17 @@ std::filesystem::path GetRecentProjectsPath()
 	return GetUserSettingsDirectory() / "Herta" / "Editor" / "RecentProjects.txt";
 }
 
+std::filesystem::path GetOutlinerFlagsPath()
+{
+	return GetUserSettingsDirectory() / "Herta" / "Editor" / "OutlinerFlags.txt";
+}
+
+std::string ReadTextFile(const std::filesystem::path& Path)
+{
+	std::ifstream Stream(Path, std::ios::binary);
+	return {std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
+}
+
 // One descriptor path per line; projects that moved or were deleted drop out when read.
 std::vector<std::filesystem::path> ReadRecentProjects()
 {
@@ -725,9 +736,11 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 			ConstraintTargetLabels.push_back(Entity.Name);
 		}
 
+		// An entity hidden in the Outliner shows nothing in the editor viewport: no light, sky, or fog either.
+		const bool bShown = !OutlinerPanelState.HiddenObjects.contains(Entity.Id);
 		if (Entity.Light)
 		{
-			if (Entity.Light->bEnabled)
+			if (Entity.Light->bEnabled && bShown)
 			{
 				RenderLights.push_back({.Settings = *Entity.Light, .Transform = PreviewModels[Index], .Id = Entity.Id});
 			}
@@ -738,18 +751,18 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 				SunLabels.push_back(Entity.Name);
 			}
 
-			if (Entity.Light->Type == ELightType::Sky && Entity.Light->bEnabled && Entity.Light->Environment.IsValid())
+			if (Entity.Light->Type == ELightType::Sky && Entity.Light->bEnabled && bShown && Entity.Light->Environment.IsValid())
 			{
 				Environments.push_back(Entity.Light->Environment);
 			}
 		}
 
-		if (!VisualSettings.Atmosphere && Entity.SkyAtmosphere && Entity.SkyAtmosphere->bEnabled)
+		if (!VisualSettings.Atmosphere && Entity.SkyAtmosphere && Entity.SkyAtmosphere->bEnabled && bShown)
 		{
 			VisualSettings.Atmosphere = Entity.SkyAtmosphere;
 		}
 
-		if (!VisualSettings.Fog && Entity.HeightFog && Entity.HeightFog->bEnabled)
+		if (!VisualSettings.Fog && Entity.HeightFog && Entity.HeightFog->bEnabled && bShown)
 		{
 			VisualSettings.Fog = Entity.HeightFog;
 			VisualSettings.FogHeight = PreviewModels[Index](1, 3);
@@ -1082,6 +1095,38 @@ void FEditorFramework::FImplementation::OpenLevelWithDialog()
 		{
 			StartAtFirstCameraBookmark();
 		}
+	}
+}
+
+void FEditorFramework::FImplementation::SynchronizeOutlinerFlags()
+{
+	const std::filesystem::path& LevelPath = Level->GetPath();
+	const std::string LevelKey = LevelPath.generic_string();
+	if (OutlinerFlagsLevel != LevelPath)
+	{
+		OutlinerFlagsLevel = LevelPath;
+		SavedOutlinerFlags = LevelKey.empty() ? FOutlinerFlags{} : ParseOutlinerFlags(ReadTextFile(GetOutlinerFlagsPath()), LevelKey);
+		OutlinerPanelState.HiddenObjects = SavedOutlinerFlags.Hidden;
+		OutlinerPanelState.LockedObjects = SavedOutlinerFlags.Locked;
+		return;
+	}
+
+	const FOutlinerFlags Current{.Hidden = OutlinerPanelState.HiddenObjects, .Locked = OutlinerPanelState.LockedObjects};
+	if (Current == SavedOutlinerFlags || LevelKey.empty())
+	{
+		return;
+	}
+
+	SavedOutlinerFlags = Current;
+	std::error_code Error;
+	std::filesystem::create_directories(GetOutlinerFlagsPath().parent_path(), Error);
+	// Other levels' sections are read before the file is truncated for the rewrite.
+	const std::string Text = ReplaceOutlinerFlags(ReadTextFile(GetOutlinerFlagsPath()), LevelKey, Current);
+	std::ofstream Stream(GetOutlinerFlagsPath(), std::ios::binary | std::ios::trunc);
+	Stream << Text;
+	if (!Stream)
+	{
+		HERTA_LOG_WARNING(*Log, EditorLog, "Could not save hidden and locked entities to {}", GetOutlinerFlagsPath().string());
 	}
 }
 

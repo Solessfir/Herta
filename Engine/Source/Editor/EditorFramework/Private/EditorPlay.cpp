@@ -1012,6 +1012,16 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 		return true;
 	}
 
+	if (Tool == "ui_click" && Arguments.Has("x") && Arguments.Has("y"))
+	{
+		// A position reaches what is drawn inside an item without being one, such as the Outliner's eye and lock.
+		constexpr std::array<std::string_view, 3> Buttons{"left", "right", "middle"};
+		const auto Pressed = std::ranges::find(Buttons, Arguments.Text("button"));
+		Editor.ToolUI->QueueClick(static_cast<float>(Arguments.Number("x", 0.)), static_cast<float>(Arguments.Number("y", 0.)), Pressed == Buttons.end() ? 0 : static_cast<int>(Pressed - Buttons.begin()), Arguments.Flag("double"));
+		Editor.AutomationUiReplies.push_back({.Id = Request.Id, .FramesLeft = 4, .Output = "{\"clicked\": true}"});
+		return true;
+	}
+
 	if (Tool == "ui_click")
 	{
 		// Fields often have no label of their own, so an id from ui_items with unlabeled set picks them instead.

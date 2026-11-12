@@ -780,6 +780,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 void FEditorFramework::FImplementation::DrawOutlinerPanel()
 {
 	FPreviewSelection NewSelection = PreviewSelection;
+	SynchronizeOutlinerFlags();
 	const bool bFocusRequested = DrawPreviewOutlinerPanel(*ToolUI, bOutlinerOpen, NewSelection, PreviewObjects, bProjectBusy || IsSimulating() || ViewportInteraction.DragButton >= 0, OutlinerPanelState, Level->GetFolders());
 	if (OutlinerPanelState.bRenameCommitted)
 	{

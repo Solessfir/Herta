@@ -592,6 +592,57 @@ TEST_CASE("Outliner panel clips large hierarchy rows and focuses an offscreen in
 	}
 }
 
+TEST_CASE("Outliner flags keep each level's hidden and locked entities apart and drop an emptied level")
+{
+	const FObjectId First{1, 1};
+	const FObjectId Second{1, 2};
+	std::string Text = ReplaceOutlinerFlags({}, "Levels/A.hlevel", {.Hidden = {First}, .Locked = {Second}});
+	Text = ReplaceOutlinerFlags(Text, "Levels/B.hlevel", {.Hidden = {Second}});
+
+	const FOutlinerFlags A = ParseOutlinerFlags(Text, "Levels/A.hlevel");
+	CHECK(A.Hidden == std::set<FObjectId>{First});
+	CHECK(A.Locked == std::set<FObjectId>{Second});
+	const FOutlinerFlags B = ParseOutlinerFlags(Text, "Levels/B.hlevel");
+	CHECK(B.Hidden == std::set<FObjectId>{Second});
+	CHECK(B.Locked.empty());
+	CHECK(ParseOutlinerFlags(Text, "Levels/C.hlevel") == FOutlinerFlags{});
+
+	// Replacing a level rewrites only its section, and a level with nothing flagged leaves no section behind.
+	Text = ReplaceOutlinerFlags(Text, "Levels/A.hlevel", {});
+	CHECK(ParseOutlinerFlags(Text, "Levels/A.hlevel") == FOutlinerFlags{});
+	CHECK(Text.find("Levels/A.hlevel") == std::string::npos);
+	CHECK(ParseOutlinerFlags(Text, "Levels/B.hlevel") == B);
+
+	// Lines that do not parse, and Windows line endings, are tolerated.
+	const std::string Untidy = "level L\r\nhidden not-an-id\r\nnonsense\r\nlocked " + First.ToString() + "\r\n";
+	CHECK(ParseOutlinerFlags(Untidy, "L").Locked == std::set<FObjectId>{First});
+}
+
+TEST_CASE("Outliner type filter keeps matching entities and the folders that hold them")
+{
+	std::vector<FPreviewObject> Objects(3);
+	for (std::size_t Index = 0; Index < Objects.size(); ++Index)
+	{
+		Objects[Index].Id = {1, Index + 1};
+		Objects[Index].Label = "Entity " + std::to_string(Index);
+	}
+
+	Objects[1].Category = EPreviewObjectCategory::Light;
+	const std::array<FLevelFolder, 2> Folders{{{.Id = {2, 1}, .Name = "Lights", .Entities = {Objects[1].Id}}, {.Id = {2, 2}, .Name = "Other", .Entities = {Objects[2].Id}}}};
+	FOutlinerPanelState State;
+	State.CollapsedFolders.insert(Folders[0].Id);
+	State.CategoryFilter = static_cast<int>(EPreviewObjectCategory::Light);
+	BuildOutlinerVisibleRows(State, Objects, Folders);
+	REQUIRE(State.VisibleRows.size() == 2);
+	CHECK(State.VisibleRows[0].FolderIndex == 0);
+	CHECK(State.VisibleRows[1].ObjectIndex == 1);
+	CHECK(State.VisibleIndices == std::vector<int>{1});
+
+	State.CategoryFilter = -1;
+	BuildOutlinerVisibleRows(State, Objects, Folders);
+	CHECK(State.VisibleRows.size() == 4);
+}
+
 TEST_CASE("Outliner reveal scrolls a viewport pick inside a collapsed folder into view")
 {
 	std::vector<FPreviewObject> Objects(400);

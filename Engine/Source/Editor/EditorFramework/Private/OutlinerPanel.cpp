@@ -13,6 +13,84 @@
 
 namespace Herta
 {
+namespace
+{
+// Calls Visit with each line's keyword and value, and whether the line falls in the named level's section.
+template <typename FVisitor>
+void VisitOutlinerFlagLines(const std::string_view Text, const std::string_view Level, FVisitor&& Visit)
+{
+	bool bInLevel = false;
+	for (std::size_t Start = 0; Start < Text.size();)
+	{
+		const std::size_t End = std::min(Text.find('\n', Start), Text.size());
+		std::string_view Line = Text.substr(Start, End - Start);
+		Start = End + 1;
+		if (Line.ends_with('\r'))
+		{
+			Line.remove_suffix(1);
+		}
+
+		const std::size_t Space = Line.find(' ');
+		if (Line.empty() || Space == std::string_view::npos)
+		{
+			continue;
+		}
+
+		const std::string_view Keyword = Line.substr(0, Space);
+		const std::string_view Value = Line.substr(Space + 1);
+		if (Keyword == "level")
+		{
+			bInLevel = Value == Level;
+		}
+
+		Visit(Keyword, Value, Line, bInLevel);
+	}
+}
+}
+
+FOutlinerFlags ParseOutlinerFlags(const std::string_view Text, const std::string_view Level)
+{
+	FOutlinerFlags Flags;
+	VisitOutlinerFlagLines(Text, Level, [&Flags](const std::string_view Keyword, const std::string_view Value, std::string_view, const bool bInLevel)
+	{
+		const auto Id = bInLevel && (Keyword == "hidden" || Keyword == "locked") ? FObjectId::Parse(Value) : std::nullopt;
+		if (Id)
+		{
+			(Keyword == "hidden" ? Flags.Hidden : Flags.Locked).insert(*Id);
+		}
+	});
+
+	return Flags;
+}
+
+std::string ReplaceOutlinerFlags(const std::string_view Text, const std::string_view Level, const FOutlinerFlags& Flags)
+{
+	std::string Result;
+	VisitOutlinerFlagLines(Text, Level, [&Result](std::string_view, std::string_view, const std::string_view Line, const bool bInLevel)
+	{
+		if (!bInLevel)
+		{
+			Result.append(Line).push_back('\n');
+		}
+	});
+
+	if (!Flags.Hidden.empty() || !Flags.Locked.empty())
+	{
+		Result.append("level ").append(Level).push_back('\n');
+		for (const FObjectId Id : Flags.Hidden)
+		{
+			Result.append("hidden ").append(Id.ToString()).push_back('\n');
+		}
+
+		for (const FObjectId Id : Flags.Locked)
+		{
+			Result.append("locked ").append(Id.ToString()).push_back('\n');
+		}
+	}
+
+	return Result;
+}
+
 void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const FPreviewObject> Objects, const std::span<const FLevelFolder> Folders)
 {
 	const std::size_t NodeCount = Objects.size() + Folders.size();

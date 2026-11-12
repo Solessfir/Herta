@@ -72,7 +72,7 @@ struct FOutlinerPanelState
 	FObjectId RenameFolder{};
 	// The type chip in effect, as an EPreviewObjectCategory, or -1 for all.
 	int CategoryFilter = -1;
-	// Editor-only and for this session: hidden entities do not draw or pick in the viewport, and locked ones do not pick.
+	// Editor-only and kept per user for each level: hidden entities do not draw, light, or pick in the viewport, and locked ones do not pick.
 	std::set<FObjectId> HiddenObjects;
 	std::set<FObjectId> LockedObjects;
 	bool bRenameRequested = false;
@@ -92,6 +92,20 @@ struct FOutlinerPanelState
 		return Search.PassFilter(SearchText.c_str());
 	}
 };
+
+// The hidden and locked entities of every level, as text kept per user: a "level <path>" line, then "hidden <id>" and "locked <id>" lines.
+struct FOutlinerFlags
+{
+	std::set<FObjectId> Hidden;
+	std::set<FObjectId> Locked;
+
+	[[nodiscard]] bool operator==(const FOutlinerFlags&) const = default;
+};
+
+// One level's flags out of the text; lines that do not parse are skipped.
+[[nodiscard]] FOutlinerFlags ParseOutlinerFlags(std::string_view Text, std::string_view Level);
+// The text with one level's section replaced, or dropped when the level has no flags left.
+[[nodiscard]] std::string ReplaceOutlinerFlags(std::string_view Text, std::string_view Level, const FOutlinerFlags& Flags);
 
 void BuildOutlinerVisibleRows(FOutlinerPanelState& State, std::span<const FPreviewObject> Objects, std::span<const FLevelFolder> Folders = {});
 
