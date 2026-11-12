@@ -1053,6 +1053,54 @@ void DrawDocumentTabs(FToolUIContext::FImplementation& Owner, ImDrawList& DrawLi
 	}
 }
 
+// Docked panels tile the dock tree as rectangles. Filling each corner with the frame color around them rounds them like every other
+// surface, whatever the panel draws inside.
+void RoundPanelCorners(ImDrawList& DrawList, const ImVec2 Minimum, const ImVec2 Maximum, const float Radius)
+{
+	if (Radius <= 0.f || Maximum.x - Minimum.x < 2.f * Radius || Maximum.y - Minimum.y < 2.f * Radius)
+	{
+		return;
+	}
+
+	constexpr float Pi = std::numbers::pi_v<float>;
+
+	struct FCorner
+	{
+		ImVec2 Point;
+		ImVec2 Center;
+		float FromAngle;
+	};
+
+	const std::array<FCorner, 4> Corners{{
+	    {.Point = Minimum, .Center = {Minimum.x + Radius, Minimum.y + Radius}, .FromAngle = Pi},
+	    {.Point = {Maximum.x, Minimum.y}, .Center = {Maximum.x - Radius, Minimum.y + Radius}, .FromAngle = 1.5f * Pi},
+	    {.Point = Maximum, .Center = {Maximum.x - Radius, Maximum.y - Radius}, .FromAngle = 0.f},
+	    {.Point = {Minimum.x, Maximum.y}, .Center = {Minimum.x + Radius, Maximum.y - Radius}, .FromAngle = 0.5f * Pi},
+	}};
+
+	// Every ray from the corner crosses the arc once, so a fan from the corner fills exactly the area outside it.
+	constexpr int Segments = 12;
+	const ImU32 Color = ToImGuiPackedColor(ToolUITheme::TitleBar);
+	DrawList.PushClipRect(Minimum, Maximum, false);
+	for (const FCorner& Corner : Corners)
+	{
+		ImVec2 Previous{Corner.Center.x + std::cos(Corner.FromAngle) * Radius, Corner.Center.y + std::sin(Corner.FromAngle) * Radius};
+		for (int Segment = 1; Segment <= Segments; ++Segment)
+		{
+			const float Angle = Corner.FromAngle + 0.5f * Pi * static_cast<float>(Segment) / static_cast<float>(Segments);
+			const ImVec2 Next{Corner.Center.x + std::cos(Angle) * Radius, Corner.Center.y + std::sin(Angle) * Radius};
+			DrawList.AddTriangleFilled(Corner.Point, Previous, Next, Color);
+			Previous = Next;
+		}
+
+		// The fan's edge is hard; a thin stroke along the arc smooths it.
+		DrawList.PathArcTo(Corner.Center, Radius - 0.5f, Corner.FromAngle, Corner.FromAngle + 0.5f * Pi, Segments);
+		DrawList.PathStroke(Color, ImDrawFlags_None, 1.f);
+	}
+
+	DrawList.PopClipRect();
+}
+
 void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 {
 	// ImGui owns dock tabs and popup creation. Keep their surface/underline adapter here, without changing docking internals.
@@ -1081,6 +1129,12 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 		const ImVec2 Minimum = Node ? Node->Pos : Window->Pos;
 		const ImVec2 Size = Node ? Node->Size : Window->Size;
 		const ImVec2 Maximum{Minimum.x + Size.x, Minimum.y + Size.y};
+		// The docked window draws after its node's tab row, so its own list covers both.
+		if (Node && Window->Viewport == ImGui::GetMainViewport())
+		{
+			RoundPanelCorners(*Window->DrawList, Minimum, Maximum, 8.f * Window->Viewport->DpiScale);
+		}
+
 		const float Radius = Node ? 0.f : Window->WindowRounding;
 		if (bPopup || (bPanel && !Panel->second && IsToolUIPanelTransparent(Owner.Appearance.PanelTransparency, Node != nullptr)))
 		{
@@ -3028,6 +3082,24 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 
 	DrawDocumentTabs(*Implementation, *DrawList, ViewportMinimum.x, TitleBarBottom, TabRowHeight, ChromeScale);
 	Implementation->WorkspaceCanvas = ResolveToolUIWorkspaceCanvas({.X = ViewportMinimum.x, .Y = ViewportMinimum.y, .Width = Viewport->Size.x, .Height = Viewport->Size.y}, TabRowBottom - ViewportMinimum.y, StatusBarHeight);
+	// Panels along the window's edges keep the margin they have between each other. The margins and the gaps between panels take the
+	// chrome's color, so the title bar, status bar, and gaps frame every panel as one surface; the scene behind the workspace would show
+	// through them otherwise.
+	const float DockMargin = ImGui::GetStyle().DockingSeparatorSize;
+	const FToolUICanvasBounds Outer = Implementation->WorkspaceCanvas;
+	Implementation->WorkspaceCanvas = {.X = Outer.X + DockMargin, .Y = Outer.Y + DockMargin, .Width = std::max(0.f, Outer.Width - 2.f * DockMargin), .Height = std::max(0.f, Outer.Height - 2.f * DockMargin)};
+	if (!Implementation->bViewportImmersive && Implementation->ActiveDocument == 0)
+	{
+		const ImU32 Frame = ToImGuiPackedColor(ToolUITheme::TitleBar);
+		ImDrawList* const HostDrawList = ImGui::GetWindowDrawList();
+		const ImVec2 OuterMinimum{Outer.X, Outer.Y};
+		const ImVec2 OuterMaximum{Outer.X + Outer.Width, Outer.Y + Outer.Height};
+		HostDrawList->AddRectFilled(OuterMinimum, {OuterMaximum.x, OuterMinimum.y + DockMargin}, Frame);
+		HostDrawList->AddRectFilled({OuterMinimum.x, OuterMaximum.y - DockMargin}, OuterMaximum, Frame);
+		HostDrawList->AddRectFilled(OuterMinimum, {OuterMinimum.x + DockMargin, OuterMaximum.y}, Frame);
+		HostDrawList->AddRectFilled({OuterMaximum.x - DockMargin, OuterMinimum.y}, OuterMaximum, Frame);
+	}
+
 	ImGui::SetCursorScreenPos({Implementation->WorkspaceCanvas.X, Implementation->WorkspaceCanvas.Y});
 	const ImVec2 DockSize{std::max(1.f, Implementation->WorkspaceCanvas.Width), std::max(1.f, Implementation->WorkspaceCanvas.Height)};
 	// Changing the ID migrates pre-Viewport layouts once while preserving user layouts from this version onward.
@@ -3037,11 +3109,13 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	// Panel surfaces supply their own opacity; the dock host must not cover the scene behind them.
 	DockspaceBackground.w = 0.f;
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, DockspaceBackground);
+	// ImGui fills idle splitters with the border color: the frame's, so the gaps between panels continue the margins.
+	ImGui::PushStyleColor(ImGuiCol_Border, ToImGuiColor(ToolUITheme::TitleBar));
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * ChromeScale, ImGui::GetStyle().FramePadding.y});
 	// A document in front keeps the level layout alive without drawing it, as the immersive viewport does.
 	ImGui::DockSpace(Implementation->DockspaceId, DockSize, Implementation->bViewportImmersive || Implementation->ActiveDocument != 0 ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_PassthruCentralNode);
 	ImGui::PopStyleVar();
-	ImGui::PopStyleColor();
+	ImGui::PopStyleColor(2);
 	if (Implementation->bBuildDefaultLayout || bDockspaceMissing)
 	{
 		ImGui::DockBuilderRemoveNode(Implementation->DockspaceId);
@@ -3469,7 +3543,8 @@ bool FToolUIContext::DrawSearchField(const char* const Label, const char* const 
 {
 	const float Scale = ImGui::GetFontSize() / Implementation->Metrics.BaseFontSize;
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {32.f * Scale, 5.f * Scale});
-	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFontSize() * 0.5f + 5.f * Scale);
+	// The same corners as every other field.
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetStyle().FrameRounding);
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.f * Scale);
 	ImGui::PushStyleColor(ImGuiCol_Border, ToImGuiColor(ToolUITheme::Border));
 	const bool bChanged = ImGui::InputTextWithHint(Label, Hint, Buffer, BufferSize);
