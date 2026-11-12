@@ -74,6 +74,8 @@ private:
 		std::unordered_map<const IRhiBuffer*, FMeshEntry> Meshes;
 		std::unordered_map<const IRhiTexture*, FTextureEntry> Textures;
 		FAccelerationStructureHandle TopLevel;
+		// A mesh's bottom level replaced by one that refits.
+		FAccelerationStructureHandle BottomLevel;
 		FBufferHandle Sections;
 		FBufferHandle Materials;
 	};

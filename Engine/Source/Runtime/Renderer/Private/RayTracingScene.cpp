@@ -150,30 +150,44 @@ std::expected<std::uint32_t, FPresentationError> FRayTracingScene::AllocateSlot(
 
 void FRayTracingScene::RetireUnused()
 {
-	// Every recording that read an unused slot was submitted before this one, so the slot frees once those complete.
-	const std::uint64_t Submitted = Device.GetStatistics().SubmittedSerial;
-	std::erase_if(Meshes, [&](const auto& Entry)
+	// Every recording that read an unused slot was submitted before this one, so the slot frees once those complete. The entries' bottom
+	// levels, buffers, and textures wait as long: a top level in flight still traces them, and destroying them loses the device.
+	const FGraphicsStatistics Statistics = Device.GetStatistics();
+	std::erase_if(Released, [&](const FReleased& Old)
+	{
+		return Old.Serial <= Statistics.CompletedSerial;
+	});
+
+	FReleased Retired{.Serial = Statistics.SubmittedSerial};
+	std::erase_if(Meshes, [&](auto& Entry)
 	{
 		if (Entry.second.LastUsed == Frame)
 		{
 			return false;
 		}
 
-		RetiredSlots.push_back({.Slot = Entry.second.VertexSlot, .Serial = Submitted});
-		RetiredSlots.push_back({.Slot = Entry.second.IndexSlot, .Serial = Submitted});
+		RetiredSlots.push_back({.Slot = Entry.second.VertexSlot, .Serial = Statistics.SubmittedSerial});
+		RetiredSlots.push_back({.Slot = Entry.second.IndexSlot, .Serial = Statistics.SubmittedSerial});
+		Retired.Meshes.emplace(Entry.first, std::move(Entry.second));
 		return true;
 	});
 
-	std::erase_if(Textures, [&](const auto& Entry)
+	std::erase_if(Textures, [&](auto& Entry)
 	{
 		if (Entry.second.LastUsed == Frame)
 		{
 			return false;
 		}
 
-		RetiredSlots.push_back({.Slot = Entry.second.Slot, .Serial = Submitted});
+		RetiredSlots.push_back({.Slot = Entry.second.Slot, .Serial = Statistics.SubmittedSerial});
+		Retired.Textures.emplace(Entry.first, std::move(Entry.second));
 		return true;
 	});
+
+	if (!Retired.Meshes.empty() || !Retired.Textures.empty())
+	{
+		Released.push_back(std::move(Retired));
+	}
 }
 
 std::expected<FRayTracingScene::FMeshEntry*, FPresentationError> FRayTracingScene::FindMesh(const FRenderMesh& Mesh, const bool bDeforming)
@@ -222,6 +236,11 @@ std::expected<FRayTracingScene::FMeshEntry*, FPresentationError> FRayTracingScen
 		if (!BottomLevel)
 		{
 			return std::unexpected(BottomLevel.error());
+		}
+
+		if (Entry.BottomLevel)
+		{
+			Released.push_back({.Serial = Device.GetStatistics().SubmittedSerial, .BottomLevel = std::move(Entry.BottomLevel)});
 		}
 
 		Entry.BottomLevel = std::move(*BottomLevel);
