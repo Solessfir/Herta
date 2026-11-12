@@ -243,29 +243,46 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		const float ValueWidth = 116.f * Scale;
 
 		// Short pages instead of one long list: each shows what one kind of change needs.
+		// Underlined like the dock tabs; each tab is its text plus an even share of the leftover width, so long names never clip.
 		constexpr std::array<const char*, 4> Pages{"View", "Camera", "Gizmo", "Rendering"};
-		const float PageWidth = (ImGui::GetContentRegionAvail().x - 3.f * 2.f * Scale) / static_cast<float>(Pages.size());
-		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.f * Scale);
+		float TextWidth = 0.f;
+		for (const char* const Page : Pages)
+		{
+			TextWidth += ImGui::CalcTextSize(Page).x;
+		}
+
+		const ImVec2 RowStart = ImGui::GetCursorScreenPos();
+		const float RowWidth = ImGui::GetContentRegionAvail().x;
+		const float Extra = std::max(0.f, RowWidth - TextWidth) / static_cast<float>(Pages.size());
+		const float TabHeight = ImGui::GetFontSize() + 12.f * Scale;
+		ImDrawList* const Draw = ImGui::GetWindowDrawList();
+		Draw->AddLine({RowStart.x, RowStart.y + TabHeight - 0.5f * Scale}, {RowStart.x + RowWidth, RowStart.y + TabHeight - 0.5f * Scale}, ImGui::GetColorU32(ImGuiCol_Separator), Scale);
+		float TabX = RowStart.x;
 		for (std::size_t Page = 0; Page < Pages.size(); ++Page)
 		{
-			const bool bCurrent = ViewportSettingsPage == Page;
-			ImGui::PushStyleColor(ImGuiCol_Button, bCurrent ? ImVec4{1.f, 1.f, 1.f, 0.14f} : ImVec4{0.f, 0.f, 0.f, 0.f});
-			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(bCurrent ? ImGuiCol_Text : ImGuiCol_TextDisabled));
-			if (Page > 0)
-			{
-				ImGui::SameLine(0.f, 2.f * Scale);
-			}
-
-			if (ImGui::Button(Pages[Page], {PageWidth, 0.f}))
+			const float Width = ImGui::CalcTextSize(Pages[Page]).x + Extra;
+			ImGui::SetCursorScreenPos({TabX, RowStart.y});
+			ImGui::PushID(Pages[Page]);
+			if (ImGui::InvisibleButton("##Page", {Width, TabHeight}))
 			{
 				ViewportSettingsPage = Page;
 			}
 
-			ImGui::PopStyleColor(2);
+			ImGui::PopID();
+			const bool bCurrent = ViewportSettingsPage == Page;
+			const ImU32 TextColor = ImGui::GetColorU32(bCurrent || ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+			Draw->AddText({TabX + (Width - ImGui::CalcTextSize(Pages[Page]).x) * 0.5f, RowStart.y + (TabHeight - ImGui::GetFontSize()) * 0.5f}, TextColor, Pages[Page]);
+			if (bCurrent)
+			{
+				const ImU32 Accent = IM_COL32(ToolUITheme::NeutralAccent.Red, ToolUITheme::NeutralAccent.Green, ToolUITheme::NeutralAccent.Blue, 255);
+				Draw->AddRectFilled({TabX + 4.f * Scale, RowStart.y + TabHeight - 2.f * Scale}, {TabX + Width - 4.f * Scale, RowStart.y + TabHeight}, Accent, Scale);
+			}
+
+			TabX += Width;
 		}
 
-		ImGui::PopStyleVar();
-		ImGui::Spacing();
+		ImGui::SetCursorScreenPos({RowStart.x, RowStart.y + TabHeight});
+		ImGui::Dummy({RowWidth, 4.f * Scale});
 		const auto Toggle = [&](const char* const Label, bool& bValue, const char* const Shortcut = nullptr)
 		{
 			DrawFieldLabel(Label, ValueWidth, Shortcut);

@@ -39,33 +39,64 @@ float GetPropertyLabelWidth()
 	return std::max((TransformLabelWidth + 25.f) * Scale, ImGui::CalcTextSize("Angular damping").x + 12.f * Scale);
 }
 
-// A group of properties inside a component: a muted label with a rule running to the panel edge.
-void DrawPropertySubheader(const std::string_view Label)
+ImVec4 GetPropertyLabelColor()
 {
-	ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-	ImGui::TextUnformatted(Label.data(), Label.data() + Label.size());
-	ImGui::PopStyleColor();
-	const float Gap = ImGui::GetStyle().ItemSpacing.x;
-	const float Y = std::floor((ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f) + 0.5f;
-	const float Left = ImGui::GetItemRectMax().x + Gap;
-	ImGuiTable* const Table = ImGui::GetCurrentTable();
-	// Inside a table the cell clips to its column, so the rule draws on the row background that spans the table.
-	const float Right = Table ? Table->WorkRect.Max.x : ImGui::GetCurrentWindow()->WorkRect.Max.x;
+	return ImLerp(ImGui::GetStyleColorVec4(ImGuiCol_Text), ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), 0.6f);
+}
+
+// A group's properties sit this far in from the component, on a tinted body under the group's header.
+constexpr float PropertyGroupIndent = 12.f;
+constexpr ImVec4 PropertyGroupBody{1.f, 1.f, 1.f, 0.025f};
+
+// A collapsible group of properties inside a component: a bright header bar over the tinted body its properties draw on.
+bool DrawPropertyGroupHeader(const std::string_view Label, const bool bForceOpen)
+{
+	const float Scale = ImGui::GetFontSize() / 15.f;
+	ImGuiStorage* const Storage = ImGui::GetStateStorage();
+	const ImGuiID Id = ImGui::GetID(Label.data(), Label.data() + Label.size());
+	const ImGuiTable* const Table = ImGui::GetCurrentTable();
+	const float Left = Table ? Table->WorkRect.Min.x : ImGui::GetCursorScreenPos().x;
+	const float Right = Table ? Table->WorkRect.Max.x : ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+	const float Height = ImGui::GetFontSize() + 8.f * Scale;
+
+	ImGui::PushStyleColor(ImGuiCol_Header, ImVec4{});
+	ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4{});
+	ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4{});
+	ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4{});
+	ImGui::PushID(static_cast<int>(Id));
+	if (ImGui::Selectable("##PropertyGroup", false, ImGuiSelectableFlags_SpanAllColumns, {0.f, Height}) && !bForceOpen)
+	{
+		Storage->SetBool(Id, !Storage->GetBool(Id, true));
+	}
+
+	ImGui::PopID();
+	ImGui::PopStyleColor(4);
+	const bool bOpen = bForceOpen || Storage->GetBool(Id, true);
+	const bool bHovered = ImGui::IsItemHovered();
+	const ImVec2 Minimum{Left, ImGui::GetItemRectMin().y};
+	const ImVec2 Maximum{Right, ImGui::GetItemRectMax().y};
+
+	// In a table the cell clips to its column; the row background spans the table.
 	if (Table)
 	{
 		ImGui::TablePushBackgroundChannel();
 	}
 
-	ImGui::GetWindowDrawList()->AddLine({Left, Y}, {Right, Y}, ImGui::GetColorU32(ImGuiCol_Border));
+	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
+	DrawList->AddRectFilled(Minimum, Maximum, ImGui::GetColorU32(ImVec4{1.f, 1.f, 1.f, bHovered ? 0.13f : 0.09f}), ImGui::GetStyle().FrameRounding, bOpen ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersAll);
+	const float ArrowScale = 0.6f;
+	const float CenterY = (Minimum.y + Maximum.y) * 0.5f;
+	const ImU32 Color = ImGui::GetColorU32(ImGuiCol_Text);
+	// Laid out like the component header: the arrow in a font-sized slot, the label after it.
+	const float ArrowX = Minimum.x + 8.f * Scale + ImGui::GetFontSize() * (1.f - ArrowScale) * 0.5f;
+	ImGui::RenderArrow(DrawList, {ArrowX, CenterY - ImGui::GetFontSize() * ArrowScale * 0.5f}, Color, bOpen ? ImGuiDir_Down : ImGuiDir_Right, ArrowScale);
+	DrawList->AddText({Minimum.x + 16.f * Scale + ImGui::GetFontSize(), CenterY - ImGui::GetFontSize() * 0.5f}, Color, Label.data(), Label.data() + Label.size());
 	if (Table)
 	{
 		ImGui::TablePopBackgroundChannel();
 	}
-}
 
-ImVec4 GetPropertyLabelColor()
-{
-	return ImLerp(ImGui::GetStyleColorVec4(ImGuiCol_Text), ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), 0.6f);
+	return bOpen;
 }
 
 struct FBodyPropertyDisplay
@@ -460,7 +491,11 @@ void DrawMaterialSlots(FToolUIContext& ToolUI, FDetailsPanelState& State, const 
 
 	const float Scale = ImGui::GetFontSize() / 15.f;
 	ImGui::Spacing();
-	DrawPropertySubheader("Materials");
+	if (!DrawPropertyGroupHeader("Materials", false))
+	{
+		return;
+	}
+
 	ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {0.f, 2.f * Scale});
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 4.f * Scale});
 	ImGui::BeginDisabled(bDragging);
@@ -477,11 +512,12 @@ void DrawMaterialSlots(FToolUIContext& ToolUI, FDetailsPanelState& State, const 
 			const auto& Slot = Components.MaterialSlots[SlotIndex];
 			ImGui::PushID(static_cast<int>(SlotIndex));
 			ImGui::TableNextRow();
+			ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImGui::GetColorU32(PropertyGroupBody));
 			ImGui::TableSetColumnIndex(0);
 			ImGui::AlignTextToFramePadding();
 			const std::string Name = Slot.Name.empty() ? std::string("Slot ") + std::to_string(SlotIndex) : Slot.Name;
-			const ImVec2 Position = ImGui::GetCursorScreenPos();
-			const float Width = std::max(1.f, ImGui::GetContentRegionAvail().x - 4.f * Scale);
+			const ImVec2 Position{ImGui::GetCursorScreenPos().x + PropertyGroupIndent * Scale, ImGui::GetCursorScreenPos().y};
+			const float Width = std::max(1.f, ImGui::GetContentRegionAvail().x - (4.f + PropertyGroupIndent) * Scale);
 			ImGui::Dummy({Width, ImGui::GetTextLineHeight()});
 			ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
 			ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), Position, {Position.x + Width, Position.y + ImGui::GetFontSize()}, Position.x + Width, Name.c_str(), Name.c_str() + Name.size(), nullptr);
@@ -708,6 +744,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 		ImGui::TableSetupColumn("##Reset", ImGuiTableColumnFlags_WidthFixed, 22.f * Scale);
 
 		std::string_view Group;
+		bool bGroupOpen = true;
 		for (std::size_t Index = 0; Index < Descriptor.Properties.size(); ++Index)
 		{
 			const auto& Property = Descriptor.Properties[Index];
@@ -733,13 +770,22 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 				continue;
 			}
 
-			if (!Property.Group.empty() && Property.Group != Group)
+			if (Property.Group != Group)
 			{
 				Group = Property.Group;
-				ImGui::TableNextRow();
-				ImGui::TableSetColumnIndex(0);
-				ImGui::Dummy({1.f, 4.f * Scale});
-				DrawPropertySubheader(Group);
+				bGroupOpen = true;
+				if (!Group.empty())
+				{
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					ImGui::Dummy({1.f, 2.f * Scale});
+					bGroupOpen = DrawPropertyGroupHeader(Group, !Query.empty());
+				}
+			}
+
+			if (!bGroupOpen)
+			{
+				continue;
 			}
 
 			FLevelPropertyValue Candidate = *Previous;
@@ -751,11 +797,16 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 
 			ImGui::PushID(static_cast<int>(Index));
 			ImGui::TableNextRow();
+			if (!Group.empty())
+			{
+				ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImGui::GetColorU32(PropertyGroupBody));
+			}
+
 			ImGui::TableSetColumnIndex(0);
 			ImGui::AlignTextToFramePadding();
 			ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
 			const float LabelLimit = ImGui::GetCursorScreenPos().x + LabelWidth - 4.f * Scale;
-			const ImVec2 LabelPosition = ImGui::GetCursorScreenPos();
+			const ImVec2 LabelPosition{ImGui::GetCursorScreenPos().x + (Group.empty() ? 0.f : PropertyGroupIndent * Scale), ImGui::GetCursorScreenPos().y};
 			ImGui::Dummy({std::max(1.f, LabelWidth - 4.f * Scale), ImGui::GetTextLineHeight()});
 			ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), LabelPosition, {LabelLimit, LabelPosition.y + ImGui::GetFontSize()}, LabelLimit, DisplayLabel.data(), DisplayLabel.data() + DisplayLabel.size(), nullptr);
 			ImGui::PopStyleColor();
