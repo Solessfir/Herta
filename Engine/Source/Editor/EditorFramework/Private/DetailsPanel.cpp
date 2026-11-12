@@ -458,6 +458,23 @@ void DrawLockButton(bool& bLocked)
 	ImGui::SetItemTooltip(bLocked ? "Unlock scale proportions" : "Lock scale proportions");
 }
 
+// The type color of a component, by its header label.
+[[nodiscard]] FToolUIColor GetComponentTypeColor(const std::string_view Label)
+{
+	const auto Is = [Label](const std::initializer_list<std::string_view> Names)
+	{
+		return std::ranges::find(Names, Label) != Names.end();
+	};
+
+	return Label == "Static Mesh"                                                              ? ToolUITheme::TypeMesh
+	       : Label.ends_with("Light")                                                          ? ToolUITheme::TypeLight
+	       : Is({"Character", "Player", "AI Agent"})                                           ? ToolUITheme::TypeCharacter
+	       : Is({"Rigid Body", "Soft Body", "Mover", "Trigger", "Constraint", "Destructible"}) ? ToolUITheme::TypePhysics
+	       : Is({"Audio Emitter", "Audio Listener"})                                           ? ToolUITheme::TypeAudio
+	       : Is({"Particle Emitter", "Sky Atmosphere", "Height Fog"})                          ? ToolUITheme::TypeEffect
+	                                                                                           : ToolUITheme::TypeOther;
+}
+
 [[nodiscard]] bool DrawResetButton(const std::string_view Label)
 {
 	const float Scale = ImGui::GetFontSize() / 15.f;
@@ -471,7 +488,8 @@ void DrawLockButton(bool& bLocked)
 		DrawList->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), 3.f * Scale);
 	}
 
-	const ImU32 Color = ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+	// The arrow shows only beside a value that differs from its default, in amber so changed values stand out down the column.
+	const ImU32 Color = ImGui::IsItemHovered() ? ImGui::GetColorU32(ImGuiCol_Text) : IM_COL32(ToolUITheme::Warning.Red, ToolUITheme::Warning.Green, ToolUITheme::Warning.Blue, 220);
 	ToolUIIcon(EToolUIMenuIcon::Reset, Position.x + Size.x * 0.5f, Position.y + Size.y * 0.5f, 0.8f * Scale, Color);
 
 	if (ImGui::IsItemHovered())
@@ -1387,8 +1405,72 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		return MeshResult;
 	}
 
+	// One chip per component jumps to it. With one or two components everything is already in view.
+	const std::array<std::pair<bool, const char*>, 20> SectionChips{{
+	    {bTransform, "Transform"},
+	    {bMesh, "Static Mesh"},
+	    {bBody, "Rigid Body"},
+	    {bLight, "Light"},
+	    {bAtmosphere, "Sky Atmosphere"},
+	    {bFog, "Height Fog"},
+	    {bSoftBody, "Soft Body"},
+	    {bMover, "Mover"},
+	    {bTrigger, "Trigger"},
+	    {bConstraint, "Constraint"},
+	    {bDestructible, "Destructible"},
+	    {bCharacter, "Character"},
+	    {bPlayer, "Player"},
+	    {bAudioEmitter, "Audio Emitter"},
+	    {bAudioListener, "Audio Listener"},
+	    {bParticleEmitter, "Particle Emitter"},
+	    {bNavigationBounds, "Navigation Bounds"},
+	    {bNavigationObstacle, "Navigation Obstacle"},
+	    {bAiAgent, "AI Agent"},
+	    {bGameplayGraph, "Gameplay Graph"},
+	}};
+
+	if (Query.empty() && std::ranges::count(SectionChips, true, &std::pair<bool, const char*>::first) >= 3)
+	{
+		ImGui::Dummy({0.f, 2.f * UiScale});
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4.f * UiScale, 4.f * UiScale});
+		bool bFirst = true;
+		for (const auto& [bShown, ChipLabel] : SectionChips)
+		{
+			if (!bShown)
+			{
+				continue;
+			}
+
+			const float ChipWidth = ImGui::CalcTextSize(ChipLabel).x + 32.f * UiScale;
+			if (!bFirst && ImGui::GetItemRectMax().x + 4.f * UiScale + ChipWidth <= ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
+			{
+				ImGui::SameLine();
+			}
+
+			bFirst = false;
+			const FToolUIColor ChipColor = GetComponentTypeColor(ChipLabel);
+			ImGui::PushID("##JumpChips");
+			if (ToolUIChip(ChipLabel, false, &ChipColor))
+			{
+				State.JumpSection = ChipLabel;
+			}
+
+			ImGui::PopID();
+		}
+
+		ImGui::PopStyleVar();
+	}
+
 	const auto DrawSectionHeader = [&](const char* const Label, const bool bMixed = false, const EDetailsComponentAction RemoveAction = EDetailsComponentAction::None)
 	{
+		// Every kind of light answers the Light chip.
+		const std::string_view LabelView(Label);
+		const bool bJump = !State.JumpSection.empty() && (State.JumpSection == LabelView || (State.JumpSection == "Light" && LabelView.ends_with("Light")));
+		if (bJump)
+		{
+			ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+		}
+
 		ImGui::Spacing();
 		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {ImGui::GetStyle().FramePadding.x, 3.f * UiScale});
 		const ImVec2 Position = ImGui::GetCursorScreenPos();
@@ -1421,8 +1503,18 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		const float ArrowScale = 0.7f;
 		const float ArrowInsetY = FontSize * (1.f - ArrowScale) * 0.5f;
 		ImGui::RenderArrow(DrawList, {Position.x + Padding.x, Position.y + Padding.y + ArrowInsetY}, ImGui::GetColorU32(GetPropertyLabelColor()), bOpen ? ImGuiDir_Down : ImGuiDir_Right, ArrowScale);
+		if (bJump)
+		{
+			ImGui::SetScrollHereY(0.f);
+			State.JumpSection.clear();
+		}
+
+		// A bar in the component's type color sits between the arrow and the name.
+		const FToolUIColor TypeColor = GetComponentTypeColor(Label);
+		const float BarX = Position.x + FontSize + Padding.x * 2.f;
+		DrawList->AddRectFilled({BarX, Position.y + Padding.y + 1.f * UiScale}, {BarX + 3.f * UiScale, Position.y + Padding.y + FontSize - 1.f * UiScale}, IM_COL32(TypeColor.Red, TypeColor.Green, TypeColor.Blue, 255), 1.5f * UiScale);
 		const std::string DisplayLabel = std::string(Label) + (bMixed ? " (mixed)" : "");
-		const ImVec2 TextPosition{Position.x + FontSize + Padding.x * 2.f, Position.y + Padding.y};
+		const ImVec2 TextPosition{BarX + 10.f * UiScale, Position.y + Padding.y};
 		ImGui::RenderTextEllipsis(DrawList, TextPosition, {bRemovable ? ActionX : ImGui::GetItemRectMax().x, Position.y + FontSize + Padding.y}, bRemovable ? ActionX : ImGui::GetItemRectMax().x, DisplayLabel.c_str(), DisplayLabel.c_str() + DisplayLabel.size(), nullptr);
 		if (bRemovable)
 		{

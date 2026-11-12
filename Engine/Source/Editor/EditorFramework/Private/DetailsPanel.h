@@ -41,6 +41,8 @@ struct FDetailsPanelState
 	std::array<char, 96> MaterialSearch{};
 	std::array<bool, 6> BodyPropertyWasMixed{};
 	std::array<bool, 160> VisualPropertyWasMixed{};
+	// The component a jump chip asked for; its header opens and scrolls into view when next drawn.
+	std::string JumpSection{};
 	int ComponentResult = 0;
 	bool bAddComponentRequested = false;
 	bool bScaleLocked = false;
