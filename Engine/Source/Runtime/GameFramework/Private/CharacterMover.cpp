@@ -1270,6 +1270,11 @@ void FCharacterMover::PressJump()
 	State.JumpBufferSeconds = Tuning.JumpBufferSeconds;
 }
 
+void FCharacterMover::Push(const FVector3& Velocity)
+{
+	State.Velocity += Horizontal(Velocity);
+}
+
 void FCharacterMover::Land(FMoverContext& Context)
 {
 	// TdMove_Landing.SubtractLandingSpeed: landing a plain jump caps the speed at the take-off speed, less the reduction, so hopping costs

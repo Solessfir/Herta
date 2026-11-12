@@ -34,6 +34,7 @@ enum ELocomotionParameter : std::size_t
 	Backpedal,
 	Dash,
 	DashBack,
+	Guard,
 	WallSwinging,
 	AimPitch,
 };
@@ -156,6 +157,7 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Backpedal", .Type = EAnimationParameterType::Bool},
 	        {.Name = "Dash", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "DashBack", .Type = EAnimationParameterType::Trigger},
+	        {.Name = "Guard", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "WallSwinging", .Type = EAnimationParameterType::Bool},
 	        {.Name = "AimPitch", .Type = EAnimationParameterType::Float},
 	    },
@@ -213,6 +215,8 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.From = AnyAnimationState, .To = HitReaction, .DurationSeconds = 0.06f, .Conditions = {Triggered(Hit), Is(Dead, false), Is(Staggered, false)}},
 	        {.From = AnyAnimationState, .To = DeflectState, .DurationSeconds = 0.04f, .Conditions = {Triggered(Deflect), Is(Dead, false), Is(Staggered, false)}},
 	        {.From = AnyAnimationState, .To = RecoilState, .DurationSeconds = 0.05f, .Conditions = {Triggered(Recoil), Is(Dead, false), Is(Staggered, false)}},
+	        // The guard cuts a swing short once its cut is over, so an attack never leaves the fighter open for the whole follow-through.
+	        {.From = AnyAnimationState, .To = Block, .DurationSeconds = 0.08f, .Conditions = {Triggered(Guard), Is(Blocking, true), Is(Dead, false), Is(Staggered, false)}},
 	        {.From = HitReaction, .To = Locomotion, .DurationSeconds = 0.15f, .bAtEnd = true},
 	        // Mantles and wall jumps can start from any state, and win over everything else in the step they start.
 	        {.From = AnyAnimationState, .To = Climb, .DurationSeconds = 0.1f, .Conditions = {Triggered(Mantle)}},

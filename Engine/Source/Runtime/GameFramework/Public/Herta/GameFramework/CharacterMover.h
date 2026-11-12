@@ -274,6 +274,8 @@ public:
 
 	// Buffers a jump for the coming steps, as the game does for a tap.
 	void PressJump();
+	// Adds to the horizontal velocity, as a blow that knocks the character back does; friction and the legs take it away again.
+	void Push(const FVector3& Velocity);
 	[[nodiscard]] std::expected<void, FPhysicsError> Step(FPhysicsWorld& World, const FMoverInput& Input, float StepSeconds);
 	[[nodiscard]] std::expected<void, FPhysicsError> Teleport(FPhysicsWorld& World, const FVector3& Foot);
 	[[nodiscard]] FMoverSnapshot SaveSnapshot() const;

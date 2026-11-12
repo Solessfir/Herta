@@ -1244,17 +1244,24 @@ TEST_CASE("Characters of opposing attitudes fight each other, a neutral one only
 
 	// The player walks up to the squad: they surround it, at most two attacking at once.
 	REQUIRE((*Session)->TeleportPlayer({23.f, 0.f, -12.f}, std::numbers::pi_v<float>));
-	bool bSurrounded = false;
-	for (int Second = 0; Second < 10 && !bSurrounded; ++Second)
+	// Blows knock the player about, so the ring re-forms between them: each of two or more guards takes a place in it at some point.
+	std::array<bool, 4> Surrounded{};
+	const auto CountSurrounded = [&]
 	{
-		Step(60);
+		return std::ranges::count(Surrounded, true);
+	};
+
+	for (int Tick = 0; Tick < 100 && CountSurrounded() < 2; ++Tick)
+	{
+		Step(6);
 		const std::vector<FGameAgentState> Now = States();
-		bSurrounded = std::count_if(Now.begin() + 3, Now.end(), [](const FGameAgentState& Squad)
+		for (std::size_t Squad = 0; Squad < Surrounded.size(); ++Squad)
 		{
-			return Squad.State == "Surround";
-		}) >= 2;
+			Surrounded[Squad] = Surrounded[Squad] || Now[3 + Squad].State == "Surround";
+		}
 	}
 
+	const bool bSurrounded = CountSurrounded() >= 2;
 	CHECK(bSurrounded);
 	CHECK(MostTurns <= 2);
 }
@@ -1718,6 +1725,32 @@ TEST_CASE("Near a guard the player faces it and backpedals, steps into swings, b
 	Step(30);
 	Step(40, {.bAttack = true}, true);
 	CHECK(Contains("struck a wall"));
+
+	// A press during a swing waits for its recovery and chains the next swing, with no second press timed to it.
+	REQUIRE((*Session)->TeleportPlayer({9.f, 0.f, -9.f}, 0.f));
+	Step(40);
+	Step(10, {.bAttack = true}, true);
+	CHECK((*Session)->GetCharacterStateName() == "Attack A");
+	Step(1, {.bAttack = true});
+	bool bChained = false;
+	for (int Frame = 0; Frame < 60 && !bChained; ++Frame)
+	{
+		Step(1);
+		bChained = (*Session)->GetCharacterStateName() == "Attack B";
+	}
+
+	CHECK(bChained);
+
+	// The guard raised during the swing cuts its follow-through short once the cut is over, well before the 1.5 s the swing and its recovery take.
+	bool bGuarded = false;
+	for (int Frame = 0; Frame < 45 && !bGuarded; ++Frame)
+	{
+		Step(1, {.bBlock = true});
+		bGuarded = (*Session)->GetCharacterStateName() == "Block";
+	}
+
+	CHECK(bGuarded);
+	Step(30);
 
 	// Walking away from a guard it faces backs off rather than turning around.
 	REQUIRE((*Session)->TeleportPlayer({0.f, 0.f, 0.5f}, 0.f));

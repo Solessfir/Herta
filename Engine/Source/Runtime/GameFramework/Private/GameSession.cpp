@@ -291,6 +291,11 @@ struct FPlayerSlot
 	// Vitality, posture, and the guard, whose press opens a deflect window; the body freezes for a moment when blades meet.
 	FCombatant Combat{GetPlayerCombatSettings()};
 	bool bGuardWasHeld = false;
+	// An attack pressed too early waits this long for the state that takes it, so a chain needs no exact timing.
+	float AttackBufferSeconds = 0.f;
+	// The swing state last seen, to tell when a new swing starts, and whether its cut is over, after which the guard may cut it short.
+	std::string_view SwingState{};
+	bool bSwingSpent = false;
 	FHitStop HitStop{};
 	// A swing steps in toward the foe it aims at for a moment, so a cut reaches someone a stride away.
 	float LungeSeconds = 0.f;
@@ -1109,6 +1114,9 @@ void FGameSession::FImplementation::ResetPlayerState()
 	KnockdownSeconds.reset();
 	Combat.Restore();
 	bGuardWasHeld = false;
+	AttackBufferSeconds = 0.f;
+	SwingState = {};
+	bSwingSpent = false;
 	HitStop = {};
 	LungeSeconds = 0.f;
 	BackDashSeconds = 0.f;
@@ -2196,28 +2204,31 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishPlayerUpdat
 		const bool bStaggered = Combat.IsStaggered();
 		if (Input.bAttack && !bStaggered)
 		{
-			Body->FireTrigger("Attack");
+			AttackBufferSeconds = 0.4f;
 			++Attacks;
-			// A swing turns to the foe within reach in front and steps toward it, as melee games aim a cut.
-			const FVector3 Foot = Mover->GetState().Foot;
-			const FVector3 Facing{std::sin(BodyYaw), 0.f, std::cos(BodyYaw)};
-			LungeTarget = FindCombatTarget(3.2f);
-			if (LungeTarget)
-			{
-				const FVector3 Foe = Characters[*LungeTarget].Npc->GetFootPosition();
-				const FVector3 Toward{Foe.X - Foot.X, 0.f, Foe.Z - Foot.Z};
-				const float Distance = Toward.Length();
-				LungeTarget = Distance < 0.1f || Toward.Dot(Facing) > -0.2f * Distance ? LungeTarget : std::nullopt;
-				// A slide already carries the player in, and a step would steer it.
-				LungeSeconds = LungeTarget && Mover->GetState().bGrounded && Mover->GetActiveMode() != "Slide" ? 0.18f : 0.f;
-				BodyYaw = LungeTarget && bThirdPerson ? std::atan2(Toward.X, Toward.Z) : BodyYaw;
-			}
+		}
+
+		// The press is offered every update until a state takes it: pressed during a swing, it starts the next one as the recovery begins.
+		AttackBufferSeconds = bStaggered ? 0.f : std::max(AttackBufferSeconds - DeltaSeconds, 0.f);
+		if (AttackBufferSeconds > 0.f)
+		{
+			Body->FireTrigger("Attack");
 		}
 
 		const bool bGuard = Input.bBlock && !bStaggered;
 		if (bGuard && !bGuardWasHeld)
 		{
 			Combat.PressGuard();
+		}
+
+		// Raising the guard cuts a swing short once its cut is over, or during its recovery.
+		const FAnimationStateMachine& Machine = Body->GetStateMachine();
+		const std::string_view Active = Machine.GetDesc().States[Machine.GetActiveState()].Name;
+		const bool bRecovering = Active == "Attack A recover" || Active == "Attack B recover";
+		if (bGuard && (bRecovering || (!SwingState.empty() && bSwingSpent)))
+		{
+			Body->FireTrigger("Guard");
+			AttackBufferSeconds = 0.f;
 		}
 
 		Combat.SetGuardHeld(bGuard);
@@ -2235,6 +2246,35 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishPlayerUpdat
 
 	const bool bJumped = bJumpedThisUpdate || bWallJumpedThisUpdate || bDashedThisUpdate;
 	UpdateBody(DeltaSeconds);
+	if (Body && !Ragdoll)
+	{
+		constexpr std::array<std::string_view, 7> SwingStates{"Attack A", "Attack B", "Attack C", "Dash attack", "Air attack", "Slide attack", "Wall run attack"};
+		const FAnimationStateMachine& Machine = Body->GetStateMachine();
+		const auto Current = std::ranges::find(SwingStates, std::string_view(Machine.GetDesc().States[Machine.GetActiveState()].Name));
+		const std::string_view Swing = Current != SwingStates.end() ? *Current : std::string_view{};
+		if (!Swing.empty() && Swing != SwingState)
+		{
+			// The swing that took the buffered press turns to the foe within reach in front and steps toward it, as melee games aim a cut.
+			AttackBufferSeconds = 0.f;
+			bSwingSpent = false;
+			const FVector3 Foot = Mover->GetState().Foot;
+			const FVector3 Facing{std::sin(BodyYaw), 0.f, std::cos(BodyYaw)};
+			LungeTarget = FindCombatTarget(3.2f);
+			if (LungeTarget)
+			{
+				const FVector3 Foe = Characters[*LungeTarget].Npc->GetFootPosition();
+				const FVector3 Toward{Foe.X - Foot.X, 0.f, Foe.Z - Foot.Z};
+				const float Distance = Toward.Length();
+				LungeTarget = Distance < 0.1f || Toward.Dot(Facing) > -0.2f * Distance ? LungeTarget : std::nullopt;
+				// A slide already carries the player in, and a step would steer it.
+				LungeSeconds = LungeTarget && Mover->GetState().bGrounded && Mover->GetActiveMode() != "Slide" ? 0.18f : 0.f;
+				BodyYaw = LungeTarget && bThirdPerson ? std::atan2(Toward.X, Toward.Z) : BodyYaw;
+			}
+		}
+
+		SwingState = Swing;
+	}
+
 	if (Body && !Ragdoll && bAuthority)
 	{
 		if (auto Swept = SweepBlade(DeltaSeconds); !Swept)
@@ -2412,6 +2452,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade(const 
 		else if (Event == "SwingEnd")
 		{
 			bSwinging = false;
+			bSwingSpent = true;
 		}
 	}
 
@@ -2969,6 +3010,12 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 
 	++CutCount;
 	Actor.Body->FireTrigger("Hit");
+	// A cut that lands breaks off whatever the fighter was doing for the length of the flinch.
+	if (Actor.Npc && !Actor.Npc->IsDead())
+	{
+		Actor.Npc->Interrupt(0.35f);
+	}
+
 	Events.push_back(std::format("{} was cut", Entities[Actor.Entity].Name));
 	// Every cut costs an agent a quarter of its health and tells it who did it.
 	if (Actor.Npc)
@@ -4299,6 +4346,8 @@ void FGameSession::FImplementation::StrikePlayer(FCharacterActor& Actor)
 			Impact(bBroken ? 0.1f : 0.f, bBroken ? 0.05f : 0.015f);
 			Audio.Play(PlayerKit.BlockSound, Clash, {{.Name = "Impulse", .Value = bBroken ? 50.f : 20.f}});
 			RequestEffect(PlayerKit.SparksEffect, Clash, Across, 0.5f);
+			// A blocked blow shoves the guard back a step, and a broken one further.
+			Mover->Push(Across * (bBroken ? 3.5f : 2.f));
 			return;
 		}
 		case EGuardOutcome::Hit:
@@ -4308,6 +4357,8 @@ void FGameSession::FImplementation::StrikePlayer(FCharacterActor& Actor)
 	HitStop.Start(0.08f);
 	Actor.HitStop.Start(0.08f);
 	Impact(0.f, 0.04f);
+	// A blow that lands knocks the player back out of the attacker's reach.
+	Mover->Push(Across * 4.5f);
 	if (Combat.IsDead())
 	{
 		// A fatal blow knocks the player down; getting up restores them.
