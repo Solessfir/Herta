@@ -700,9 +700,9 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			ImGui::SameLine();
 		}
 
-		// The thumbnail size shares the search row, so the panel needs no footer.
-		const float ZoomWidth = 96.f * Scale;
-		ImGui::SetNextItemWidth(-(ZoomWidth + ImGui::GetStyle().ItemSpacing.x));
+		// The view options share the search row, so the panel needs no footer.
+		const float ViewSize = ImGui::GetFrameHeight();
+		ImGui::SetNextItemWidth(-(ViewSize + ImGui::GetStyle().ItemSpacing.x));
 
 		if (ToolUI.DrawSearchField("##ContentSearch", "Search assets", State.Search.data(), State.Search.size()))
 		{
@@ -715,10 +715,25 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		}
 
 		ImGui::SameLine();
-		ImGui::SetNextItemWidth(ZoomWidth);
-		const std::string ZoomLabel = State.Zoom < 0.5f ? "List" : std::format("{:.0f} px", 48.f + State.Zoom * 16.f);
-		DrawNumericSliderFloat("##ContentZoomLevel", &State.Zoom, 0.f, 9.f, ZoomLabel.c_str(), ImGuiSliderFlags_AlwaysClamp);
-		ImGui::SetItemTooltip("Thumbnail size. Ctrl+Wheel over the grid also zooms.");
+		if (ImGui::Button("##ContentView", {ViewSize, ViewSize}))
+		{
+			ImGui::OpenPopup("##ContentViewOptions");
+		}
+
+		const ImVec2 ViewCenter{(ImGui::GetItemRectMin().x + ImGui::GetItemRectMax().x) * 0.5f, (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f};
+		ToolUIIcon(EToolUIMenuIcon::Grid, ViewCenter.x, ViewCenter.y, 0.9f * Scale, ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled));
+		ImGui::SetItemTooltip("View options. Ctrl+Wheel over the grid also changes the thumbnail size.");
+		ImGui::PopStyleVar();
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12.f * Scale, 10.f * Scale});
+		if (ImGui::BeginPopup("##ContentViewOptions"))
+		{
+			ImGui::TextDisabled("Thumbnail size");
+			ImGui::SetNextItemWidth(180.f * Scale);
+			const std::string ZoomLabel = State.Zoom < 0.5f ? "List" : std::format("{:.0f} px", 48.f + State.Zoom * 16.f);
+			DrawNumericSliderFloat("##ContentZoomLevel", &State.Zoom, 0.f, 9.f, ZoomLabel.c_str(), ImGuiSliderFlags_AlwaysClamp);
+			ImGui::EndPopup();
+		}
+
 		ImGui::PopStyleVar();
 		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 		{
