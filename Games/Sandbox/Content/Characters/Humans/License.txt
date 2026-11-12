@@ -1,6 +1,0 @@
-HumanMale.glb is built from "male-body-base-mesh-highpoly", a sculpted base mesh released under CC0 1.0 Universal:
-
-CC0 1.0 Universal (CC0 1.0) Public Domain Dedication
-https://creativecommons.org/publicdomain/zero/1.0/
-
-Its rig and skin weights come from MPFB 2 and MakeHuman's system assets, also CC0 1.0.

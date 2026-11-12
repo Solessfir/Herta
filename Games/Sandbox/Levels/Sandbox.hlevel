@@ -16,7 +16,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25,
@@ -1612,7 +1612,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25,
@@ -1654,7 +1654,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25,
@@ -1696,7 +1696,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25,
@@ -1738,7 +1738,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25,
@@ -1780,7 +1780,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25,
@@ -1822,7 +1822,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25,
@@ -1864,7 +1864,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25,
@@ -1906,7 +1906,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25,
