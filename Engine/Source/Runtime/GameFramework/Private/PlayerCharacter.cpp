@@ -37,6 +37,8 @@ enum ELocomotionParameter : std::size_t
 	Guard,
 	WallSwinging,
 	AimPitch,
+	Skidding,
+	HeavyLanding,
 };
 
 enum ELocomotionState : std::size_t
@@ -71,6 +73,8 @@ enum ELocomotionState : std::size_t
 	WallRunAttack,
 	DashState,
 	DashBackState,
+	SkidState,
+	HeavyLand,
 };
 
 // Part of a rotation, by blending from identity along the short way.
@@ -160,6 +164,8 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Guard", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "WallSwinging", .Type = EAnimationParameterType::Bool},
 	        {.Name = "AimPitch", .Type = EAnimationParameterType::Float},
+	        {.Name = "Skidding", .Type = EAnimationParameterType::Bool},
+	        {.Name = "HeavyLanding", .Type = EAnimationParameterType::Bool},
 	    },
 	    .States = {
 	        // The walk, jog, and sprint cycles each take two steps, planting a foot at their start and halfway.
@@ -206,6 +212,10 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        // Held poses rather than strides, so the burst reads as one motion: leaned into a lunge, or crouched in a backstep.
 	        {.Name = "Dash", .Samples = {{.Clip = "Dash"}}, .bLoop = false, .Speed = 1.3f},
 	        {.Name = "Dash back", .Samples = {{.Clip = "Dash_Back"}}, .bLoop = false, .Speed = 1.3f},
+	        // Planted feet braking a run before it turns round: the crouched backstep pose, held while the skid lasts.
+	        {.Name = "Skid", .Samples = {{.Clip = "Dash_Back"}}, .bLoop = false, .Speed = 1.6f},
+	        // A long drop absorbed low, held for as long as the legs take to push off again.
+	        {.Name = "Heavy land", .Samples = {{.Clip = "NinjaJump_Land"}}, .bLoop = false, .Speed = 1.2f, .Events = {{.Name = "Land", .Phase = 0.f}}},
 	    },
 	    // A jump leaves the ground in the same step it starts, so it is tested before falling, from every state the player can jump from.
 	    .Transitions = {
@@ -252,7 +262,16 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.From = WallJumpStart, .To = Air, .DurationSeconds = 0.2f, .bAtEnd = true},
 	        {.From = WallJumpStart, .To = Land, .DurationSeconds = 0.1f, .Conditions = {Is(Grounded, true)}},
 	        {.From = JumpStart, .To = Land, .DurationSeconds = 0.1f, .Conditions = {Is(Grounded, true)}},
+	        {.From = Air, .To = HeavyLand, .DurationSeconds = 0.05f, .Conditions = {Is(Grounded, true), Is(HeavyLanding, true)}},
+	        {.From = JumpStart, .To = HeavyLand, .DurationSeconds = 0.05f, .Conditions = {Is(Grounded, true), Is(HeavyLanding, true)}},
 	        {.From = Air, .To = Land, .DurationSeconds = 0.08f, .Conditions = {Is(Grounded, true)}},
+	        {.From = HeavyLand, .To = Locomotion, .DurationSeconds = 0.2f, .Conditions = {Is(HeavyLanding, false)}},
+	        {.From = HeavyLand, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(Jump)}},
+	        {.From = Locomotion, .To = SkidState, .DurationSeconds = 0.1f, .Conditions = {Is(Skidding, true), Is(Grounded, true)}},
+	        {.From = DashState, .To = SkidState, .DurationSeconds = 0.1f, .Conditions = {Is(Skidding, true), Is(Grounded, true)}},
+	        {.From = SkidState, .To = Locomotion, .DurationSeconds = 0.2f, .Conditions = {Is(Skidding, false)}},
+	        {.From = SkidState, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(Jump)}},
+	        {.From = SkidState, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
 	        {.From = Land, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
 	        {.From = Land, .To = Locomotion, .DurationSeconds = 0.25f, .Conditions = {{.Parameter = Speed, .Test = EAnimationCondition::Greater, .Value = 2.f}}},
 	        {.From = Locomotion, .To = DashAttack, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack), {.Parameter = Speed, .Test = EAnimationCondition::Greater, .Value = 5.5f}}},
@@ -425,6 +444,8 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 	Character->DashBackParameter = Locomotion.FindParameter("DashBack");
 	Character->WallSwingingParameter = Locomotion.FindParameter("WallSwinging");
 	Character->AimPitchParameter = Locomotion.FindParameter("AimPitch");
+	Character->SkiddingParameter = Locomotion.FindParameter("Skidding");
+	Character->HeavyLandingParameter = Locomotion.FindParameter("HeavyLanding");
 
 	if (Device)
 	{
@@ -492,6 +513,8 @@ void FPlayerCharacter::Update(const float DeltaSeconds, const FPlayerMotion& Mot
 	Set(CrouchedParameter, Motion.bCrouched);
 	Set(SlidingParameter, Motion.bSliding);
 	Set(WallRunningParameter, Motion.bWallRunning);
+	Set(SkiddingParameter, Motion.bSkidding);
+	Set(HeavyLandingParameter, Motion.bHeavyLanding);
 	const auto Trigger = [this](const std::optional<std::size_t>& Parameter, const bool bFired)
 	{
 		if (bFired && Parameter)

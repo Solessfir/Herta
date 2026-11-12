@@ -2322,8 +2322,10 @@ void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
 	const float Speed = Ragdoll ? 0.f : std::hypot(State.Velocity.X, State.Velocity.Z);
 	const bool bDashedBack = bDashedThisUpdate && State.Velocity.Dot(Movement::Forward(Yaw)) < -0.5f * Speed;
 	BackDashSeconds = bDashedBack ? 0.45f : std::max(BackDashSeconds - DeltaSeconds, 0.f);
-	float TargetYaw = !bThirdPerson || BackDashSeconds > 0.f ? Yaw : Speed > 0.5f ? std::atan2(State.Velocity.X, State.Velocity.Z)
-	                                                                              : BodyYaw;
+	// A skid keeps facing the way it was running until the run has turned round, rather than spinning to face its own slide.
+	float TargetYaw = !bThirdPerson || BackDashSeconds > 0.f ? Yaw : State.bSkidding ? BodyYaw
+	                                                             : Speed > 0.5f      ? std::atan2(State.Velocity.X, State.Velocity.Z)
+	                                                                                 : BodyYaw;
 	// Near a foe, walking keeps the body facing it: sideways steps turn it at most 50 degrees toward the step, and stepping away walks backwards
 	// instead of turning around. A sprint breaks off and runs.
 	const std::optional<std::size_t> Foe = bThirdPerson && !Ragdoll && State.bGrounded && Speed < 5.5f && Mode == "Walking" ? FindCombatTarget(7.f) : std::nullopt;
@@ -2348,7 +2350,7 @@ void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
 	const float MaximumTurn = (bThirdPerson ? (Foe ? 14.f : 10.f) : 30.f) * DeltaSeconds;
 	BodyYaw = std::remainder(BodyYaw + std::clamp(Turn, -MaximumTurn, MaximumTurn), 2.f * std::numbers::pi_v<float>);
 
-	Body->Update(HitStop.Advance(DeltaSeconds), {.GroundSpeed = Speed, .bGrounded = State.bGrounded || Mode == "Mantle", .bCrouched = State.bCrouched, .bSliding = Mode == "Slide", .bWallRunning = Mode == "WallRun", .bJumped = bJumpedThisUpdate, .bWallJumped = bWallJumpedThisUpdate, .bMantled = bMantledThisUpdate, .bDashed = bDashedThisUpdate, .bDashedBack = bDashedBack, .AimPitch = Ragdoll ? 0.f : Pitch});
+	Body->Update(HitStop.Advance(DeltaSeconds), {.GroundSpeed = Speed, .bGrounded = State.bGrounded || Mode == "Mantle", .bCrouched = State.bCrouched, .bSliding = Mode == "Slide", .bWallRunning = Mode == "WallRun", .bJumped = bJumpedThisUpdate, .bWallJumped = bWallJumpedThisUpdate, .bMantled = bMantledThisUpdate, .bDashed = bDashedThisUpdate, .bDashedBack = bDashedBack, .bSkidding = State.bSkidding && State.bGrounded, .bHeavyLanding = State.LandingSeconds > 0.f && State.bGrounded, .AimPitch = Ragdoll ? 0.f : Pitch});
 	bJumpedThisUpdate = false;
 	bWallJumpedThisUpdate = false;
 	bDashedThisUpdate = false;

@@ -32,6 +32,9 @@ struct FPlayerMotion
 	bool bDashed = false;
 	// Which way the last dash went relative to the view, as the back dash has its own pose.
 	bool bDashedBack = false;
+	// Feet planted against the run, and a heavy landing the legs are still pushing off from.
+	bool bSkidding = false;
+	bool bHeavyLanding = false;
 	// Where the view looks above the horizon, in radians, which the spine and neck follow.
 	float AimPitch = 0.f;
 };
@@ -227,6 +230,8 @@ private:
 	std::optional<std::size_t> DashBackParameter;
 	std::optional<std::size_t> WallSwingingParameter;
 	std::optional<std::size_t> AimPitchParameter;
+	std::optional<std::size_t> SkiddingParameter;
+	std::optional<std::size_t> HeavyLandingParameter;
 };
 
 // A ragdoll fitted to a pose: its parts, the joint each drives, and that joint's transform relative to its part's capsule.
