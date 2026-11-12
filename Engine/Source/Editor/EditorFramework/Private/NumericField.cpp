@@ -401,23 +401,38 @@ std::string FormatCompactNumericValue(const float Value, const char* const Forma
 	return Text;
 }
 
+namespace
+{
+// Centers a formatted value in its field with whatever follows the last digit, such as " m" or "°", dimmed as the unit.
+void RenderValueWithUnit(const ImVec2 Minimum, const ImVec2 Maximum, const std::string_view Text)
+{
+	const std::size_t LastDigit = Text.find_last_of("0123456789");
+	const std::size_t Split = LastDigit == std::string_view::npos ? Text.size() : LastDigit + 1;
+	const ImVec2 Size = ImGui::CalcTextSize(Text.data(), Text.data() + Text.size());
+	const ImVec2 Origin{std::max(Minimum.x, std::floor((Minimum.x + Maximum.x - Size.x) * 0.5f)), std::floor((Minimum.y + Maximum.y - Size.y) * 0.5f)};
+	const ImVec4 Clip{Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+	ImDrawList* const Draw = ImGui::GetWindowDrawList();
+	Draw->AddText(nullptr, 0.f, Origin, ImGui::GetColorU32(ImGuiCol_Text), Text.data(), Text.data() + Split, 0.f, &Clip);
+	if (Split < Text.size())
+	{
+		const float NumberWidth = ImGui::CalcTextSize(Text.data(), Text.data() + Split).x;
+		Draw->AddText(nullptr, 0.f, {Origin.x + NumberWidth, Origin.y}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Text.data() + Split, Text.data() + Text.size(), 0.f, &Clip);
+	}
+}
+}
+
 bool DrawNumericDragFloat(const char* const Label, float* const Value, const float Speed, const float Minimum, const float Maximum, const char* const Format, const ImGuiSliderFlags Flags, FNumericEditLifecycle* const Edit, const bool bCompactDisplay)
 {
 	return DrawNumericField(Label, Value, Minimum, Maximum, Format, (Flags & ImGuiSliderFlags_AlwaysClamp) != 0, true, Edit, {}, [&](float* const Candidate)
 	{
-		if (bCompactDisplay)
-		{
-			ImGui::PushStyleColor(ImGuiCol_Text, {0.f, 0.f, 0.f, 0.f});
-		}
-
+		// The drag draws no text of its own; the value is drawn over it so its unit can be dimmed.
+		ImGui::PushStyleColor(ImGuiCol_Text, {0.f, 0.f, 0.f, 0.f});
 		const bool bChanged = ImGui::DragFloat(Label, Candidate, Speed, Minimum, Maximum, Format, Flags | ImGuiSliderFlags_NoInput);
-		if (bCompactDisplay)
-		{
-			ImGui::PopStyleColor();
-			const std::string Text = FormatCompactNumericValue(*Candidate, Format);
-			ImGui::RenderTextClipped(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), Text.data(), Text.data() + Text.size(), nullptr, {0.5f, 0.5f});
-		}
-
+		ImGui::PopStyleColor();
+		char Buffer[128];
+		ImGui::DataTypeFormatString(Buffer, static_cast<int>(sizeof(Buffer)), ImGuiDataType_Float, Candidate, Format);
+		const std::string Text = bCompactDisplay ? FormatCompactNumericValue(*Candidate, Format) : std::string(Buffer);
+		RenderValueWithUnit(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), Text);
 		return bChanged;
 	});
 }

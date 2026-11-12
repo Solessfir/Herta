@@ -207,27 +207,18 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 
 	const float ClearWidth = ButtonWidth("Clear");
 	const float CopyWidth = ButtonWidth("Copy");
-	const auto VisibleLines = OutputLog->GetVisibleLines();
-	std::size_t WarningCount = 0;
-	std::optional<std::uint64_t> PreviousSequence;
-
-	for (const FOutputLogLine& Line : VisibleLines)
-	{
-		if (Line.Record.Sequence != PreviousSequence && Line.Record.Level == ELogLevel::Warning)
-		{
-			++WarningCount;
-		}
-
-		PreviousSequence = Line.Record.Sequence;
-	}
-
+	const std::size_t WarningCount = OutputLog->GetLevelCount(ELogLevel::Warning);
+	const std::size_t ErrorCount = OutputLog->GetLevelCount(ELogLevel::Error) + OutputLog->GetLevelCount(ELogLevel::Critical);
 	OutputLogWarningCount = WarningCount;
-	const std::string CountLabel = std::to_string(WarningCount);
-	const float CountFontSize = ImGui::GetFontSize() * 0.8f;
-	const ImVec2 CountTextSize = ImGui::CalcTextSize(CountLabel.c_str());
-	const ImVec2 CountSize{CountTextSize.x * 0.8f, CountTextSize.y * 0.8f};
-	const ImVec2 BadgeSize{std::max(18.f * ToolbarScale, CountSize.x + 10.f * ToolbarScale), CountFontSize + 4.f * ToolbarScale};
-	const float FilterWidth = ButtonWidth("Warnings") + Spacing + BadgeSize.x;
+	const std::string WarningsLabel = std::format("Warnings {}###LogWarnings", WarningCount);
+	const std::string ErrorsLabel = std::format("Errors {}###LogErrors", ErrorCount);
+	const auto ChipWidth = [ToolbarScale](const std::string& Label)
+	{
+		return std::round(ImGui::CalcTextSize(Label.c_str(), nullptr, true).x + 18.f * ToolbarScale);
+	};
+
+	const float ChipSpacing = 4.f * ToolbarScale;
+	const float FilterWidth = ChipWidth("All") + ChipWidth(WarningsLabel) + ChipWidth(ErrorsLabel) + ChipSpacing * 2.f;
 	const float ButtonsWidth = FilterWidth + ButtonWidth("Options") + ClearWidth + CopyWidth + Spacing * 3.f;
 	const float AvailableWidth = ImGui::GetContentRegionAvail().x;
 	const bool bSingleRow = AvailableWidth >= ButtonsWidth + Spacing + 160.f * ToolbarScale;
@@ -239,23 +230,50 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		ImGui::SameLine();
 	}
 
-	ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, {0.f, 0.5f});
-	ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-
-	if (ImGui::Button("Warnings###OutputLogFilters", {FilterWidth, 0.f}))
+	// Three chips cover the common filters: everything, only warnings, or only errors. The Options menu still shows or hides each level.
+	constexpr std::array AllLevels{ELogLevel::Trace, ELogLevel::Debug, ELogLevel::Info, ELogLevel::Warning, ELogLevel::Error, ELogLevel::Critical};
+	const auto OnlyShows = [this, &AllLevels](const std::initializer_list<ELogLevel> Shown)
 	{
-		ImGui::OpenPopup("OutputLogFilter");
+		return std::ranges::all_of(AllLevels, [this, Shown](const ELogLevel Level)
+		{
+			return OutputLog->IsLevelVisible(Level) == (std::ranges::find(Shown, Level) != Shown.end());
+		});
+	};
+
+	const auto Show = [this, &AllLevels](const std::initializer_list<ELogLevel> Shown)
+	{
+		for (const ELogLevel Level : AllLevels)
+		{
+			OutputLog->SetLevelVisible(Level, Shown.size() == 0 || std::ranges::find(Shown, Level) != Shown.end());
+		}
+	};
+
+	const bool bOnlyWarnings = OnlyShows({ELogLevel::Warning});
+	const bool bOnlyErrors = OnlyShows({ELogLevel::Error, ELogLevel::Critical});
+	const float ChipOffset = (ImGui::GetFrameHeight() - std::round(22.f * ToolbarScale)) * 0.5f;
+	const float ChipRowY = ImGui::GetCursorPosY();
+	ImGui::SetCursorPosY(ChipRowY + ChipOffset);
+	if (ToolUIChip("All###LogAll", !bOnlyWarnings && !bOnlyErrors))
+	{
+		Show({});
 	}
 
-	const ImVec2 FilterMinimum = ImGui::GetItemRectMin();
-	const ImVec2 FilterMaximum = ImGui::GetItemRectMax();
-	const ImVec2 BadgeMinimum{FilterMaximum.x - ImGui::GetStyle().FramePadding.x - BadgeSize.x, (FilterMinimum.y + FilterMaximum.y - BadgeSize.y) * 0.5f};
-	ImDrawList* const ToolbarDrawList = ImGui::GetWindowDrawList();
-	ToolbarDrawList->AddRectFilled(BadgeMinimum, {BadgeMinimum.x + BadgeSize.x, BadgeMinimum.y + BadgeSize.y}, ImGui::GetColorU32(ImVec4{1, 1, 1, 0.08f}), 4.f * ToolbarScale);
-	ToolbarDrawList->AddText(ImGui::GetFont(), CountFontSize, {BadgeMinimum.x + (BadgeSize.x - CountSize.x) * 0.5f, BadgeMinimum.y + (BadgeSize.y - CountSize.y) * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), CountLabel.c_str());
-	ImGui::PopStyleColor();
-	ImGui::PopStyleVar();
+	ImGui::SameLine(0.f, ChipSpacing);
+	ImGui::SetCursorPosY(ChipRowY + ChipOffset);
+	if (ToolUIChip(WarningsLabel.c_str(), bOnlyWarnings, WarningCount > 0 ? &ToolUITheme::Warning : nullptr))
+	{
+		bOnlyWarnings ? Show({}) : Show({ELogLevel::Warning});
+	}
+
+	ImGui::SameLine(0.f, ChipSpacing);
+	ImGui::SetCursorPosY(ChipRowY + ChipOffset);
+	if (ToolUIChip(ErrorsLabel.c_str(), bOnlyErrors, ErrorCount > 0 ? &ToolUITheme::Error : nullptr))
+	{
+		bOnlyErrors ? Show({}) : Show({ELogLevel::Error, ELogLevel::Critical});
+	}
+
 	ImGui::SameLine();
+	ImGui::SetCursorPosY(ChipRowY);
 
 	if (ImGui::Button("Options"))
 	{
@@ -285,22 +303,6 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		OutputLog->SetSearch(SearchBuffer.data());
 	}
 
-	if (ImGui::BeginPopup("OutputLogFilter"))
-	{
-		for (const ELogLevel Verbosity : {ELogLevel::Trace, ELogLevel::Debug, ELogLevel::Info, ELogLevel::Warning, ELogLevel::Error, ELogLevel::Critical})
-		{
-			bool bVisible = OutputLog->IsLevelVisible(Verbosity);
-			const std::string LevelName{GetLogLevelName(Verbosity)};
-
-			if (ImGui::MenuItem(LevelName.c_str(), nullptr, &bVisible))
-			{
-				OutputLog->SetLevelVisible(Verbosity, bVisible);
-			}
-		}
-
-		ImGui::EndPopup();
-	}
-
 	if (ImGui::BeginPopup("OutputLogOptions"))
 	{
 		bool bAutoScroll = OutputLog->IsAutoScroll();
@@ -320,6 +322,17 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		if (ImGui::MenuItem("Colorize categories", nullptr, &bColorize))
 		{
 			OutputLog->SetCategoryColorization(bColorize);
+		}
+
+		ImGui::Separator();
+		for (const ELogLevel Verbosity : {ELogLevel::Trace, ELogLevel::Debug, ELogLevel::Info, ELogLevel::Warning, ELogLevel::Error, ELogLevel::Critical})
+		{
+			bool bVisible = OutputLog->IsLevelVisible(Verbosity);
+			const std::string LevelName{GetLogLevelName(Verbosity)};
+			if (ImGui::MenuItem(LevelName.c_str(), nullptr, &bVisible))
+			{
+				OutputLog->SetLevelVisible(Verbosity, bVisible);
+			}
 		}
 
 		ImGui::EndPopup();

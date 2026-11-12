@@ -458,6 +458,43 @@ void DrawLockButton(bool& bLocked)
 	ImGui::SetItemTooltip(bLocked ? "Unlock scale proportions" : "Lock scale proportions");
 }
 
+// Where a combo's own preview would draw, taken before the combo so the asset preview can be drawn over it afterwards.
+struct FComboPreviewSlot
+{
+	ImVec2 Minimum{};
+	float Width = 0.f;
+};
+
+[[nodiscard]] FComboPreviewSlot GetComboPreviewSlot()
+{
+	return {.Minimum = ImGui::GetCursorScreenPos(), .Width = ImGui::CalcItemWidth()};
+}
+
+// Draws an asset path as a combo's preview: without the Game mount everyone works in, and with its extension dimmed.
+void DrawAssetComboPreview(const FComboPreviewSlot Slot, std::string_view Label)
+{
+	if (Label.starts_with("Game/"))
+	{
+		Label.remove_prefix(5);
+	}
+
+	const std::size_t Dot = Label.find_last_of('.');
+	const std::size_t Slash = Label.find_last_of('/');
+	const std::size_t Split = Dot != std::string_view::npos && Dot > 0 && (Slash == std::string_view::npos || Dot > Slash) ? Dot : Label.size();
+	const ImGuiStyle& Style = ImGui::GetStyle();
+	const ImVec2 Origin{Slot.Minimum.x + Style.FramePadding.x, Slot.Minimum.y + Style.FramePadding.y};
+	const float Right = Slot.Minimum.x + Slot.Width - ImGui::GetFrameHeight() - Style.FramePadding.x;
+	const float ExtensionWidth = ImGui::CalcTextSize(Label.data() + Split, Label.data() + Label.size()).x;
+	const float NameWidth = ImGui::CalcTextSize(Label.data(), Label.data() + Split).x;
+	// A name too long for the field ends in an ellipsis and gives up its extension.
+	const bool bFits = Origin.x + NameWidth + ExtensionWidth <= Right;
+	ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), Origin, {Right, Origin.y + ImGui::GetFontSize()}, Right, Label.data(), Label.data() + Split, nullptr);
+	if (bFits && Split < Label.size())
+	{
+		ImGui::GetWindowDrawList()->AddText({Origin.x + NameWidth, Origin.y}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Label.data() + Split, Label.data() + Label.size());
+	}
+}
+
 // The type color of a component, by its header label.
 [[nodiscard]] FToolUIColor GetComponentTypeColor(const std::string_view Label)
 {
@@ -488,9 +525,9 @@ void DrawLockButton(bool& bLocked)
 		DrawList->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), 3.f * Scale);
 	}
 
-	// The arrow shows only beside a value that differs from its default, in amber so changed values stand out down the column.
-	const ImU32 Color = ImGui::IsItemHovered() ? ImGui::GetColorU32(ImGuiCol_Text) : IM_COL32(ToolUITheme::Warning.Red, ToolUITheme::Warning.Green, ToolUITheme::Warning.Blue, 220);
-	ToolUIIcon(EToolUIMenuIcon::Reset, Position.x + Size.x * 0.5f, Position.y + Size.y * 0.5f, 0.8f * Scale, Color);
+	// The arrow shows only beside a value that differs from its default, small and muted until the pointer is on it.
+	const ImU32 Color = ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+	ToolUIIcon(EToolUIMenuIcon::Reset, Position.x + Size.x * 0.5f, Position.y + Size.y * 0.5f, 0.62f * Scale, Color);
 
 	if (ImGui::IsItemHovered())
 	{
@@ -555,7 +592,10 @@ void DrawMaterialSlots(FToolUIContext& ToolUI, FDetailsPanelState& State, const 
 
 			const auto Slash = Label.rfind('/');
 			const std::string Display(Slash == std::string_view::npos ? Label : Label.substr(Slash + 1));
-			if (ImGui::BeginCombo("##Material", Display.c_str()))
+			const FComboPreviewSlot PreviewSlot = GetComboPreviewSlot();
+			const bool bMaterialComboOpen = ImGui::BeginCombo("##Material", "");
+			DrawAssetComboPreview(PreviewSlot, Display);
+			if (bMaterialComboOpen)
 			{
 				if (ImGui::IsWindowAppearing())
 				{
@@ -1052,7 +1092,10 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 					}
 				}
 
-				if (ImGui::BeginCombo("##Value", Mixed[Index] ? "Multiple values" : CurrentLabel))
+				const FComboPreviewSlot PreviewSlot = GetComboPreviewSlot();
+				const bool bComboOpen = ImGui::BeginCombo("##Value", "");
+				DrawAssetComboPreview(PreviewSlot, Mixed[Index] ? "Multiple values" : CurrentLabel);
+				if (bComboOpen)
 				{
 					if (ImGui::IsWindowAppearing())
 					{
@@ -1669,7 +1712,10 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			ImGui::BeginDisabled(bDragging);
 			ImGui::SetNextItemWidth(-FLT_MIN);
 
-			if (ImGui::BeginCombo("##PreviewMesh", MeshName.c_str()))
+			const FComboPreviewSlot PreviewSlot = GetComboPreviewSlot();
+			const bool bMeshComboOpen = ImGui::BeginCombo("##PreviewMesh", "");
+			DrawAssetComboPreview(PreviewSlot, MeshName);
+			if (bMeshComboOpen)
 			{
 				MeshResult.bOptionsOpened = ImGui::IsWindowAppearing();
 				if (MeshResult.bOptionsOpened)

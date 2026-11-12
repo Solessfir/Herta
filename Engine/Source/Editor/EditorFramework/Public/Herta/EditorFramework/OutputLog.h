@@ -88,6 +88,8 @@ public:
 	[[nodiscard]] bool IsAutoScroll() const noexcept;
 	[[nodiscard]] bool IsCategoryColorizationEnabled() const noexcept;
 	[[nodiscard]] bool IsLevelVisible(ELogLevel Level) const noexcept;
+	// Retained records at a level, whether or not the level is shown.
+	[[nodiscard]] std::size_t GetLevelCount(ELogLevel Level) const noexcept;
 	[[nodiscard]] std::string_view GetSearch() const noexcept;
 	[[nodiscard]] std::span<const FOutputLogLine> GetVisibleLines() const noexcept;
 	[[nodiscard]] std::span<const std::string> GetVisibleText() const noexcept;

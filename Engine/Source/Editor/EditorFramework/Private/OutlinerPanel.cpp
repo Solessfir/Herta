@@ -620,6 +620,18 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 			const ImGuiTable* const Table = ImGui::GetCurrentTable();
 			ImGui::TablePushBackgroundChannel();
 			ImGui::GetWindowDrawList()->AddRectFilled({Table->WorkRect.Min.x, Table->RowPosY1}, {Table->WorkRect.Max.x, Table->RowPosY2}, ImGui::GetColorU32(ImVec4{1, 1, 1, 0.05f}), 4.f * Scale);
+			// The selection count rides at the right of the label header, which stays pinned while the list scrolls.
+			if (!Selection.Indices.empty())
+			{
+				const std::string Selected = std::format("{} selected", Selection.Indices.size());
+				const float Right = Table->Columns[0].WorkMaxX - 4.f * Scale;
+				const float Left = Right - ImGui::CalcTextSize(Selected.c_str()).x;
+				if (Left > Table->Columns[0].WorkMinX + ImGui::CalcTextSize("Item Label").x + 12.f * Scale)
+				{
+					ImGui::GetWindowDrawList()->AddText({Left, (Table->RowPosY1 + Table->RowPosY2 - ImGui::GetFontSize()) * 0.5f}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Selected.c_str());
+				}
+			}
+
 			ImGui::TablePopBackgroundChannel();
 			RowsTop = ImGui::GetCursorScreenPos().y;
 			const auto DrawRow = [&](const int VisibleIndex)
@@ -1075,16 +1087,6 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 	}
 
 	ImGui::PopStyleVar();
-	if (!Selection.Indices.empty())
-	{
-		const std::string Selected = std::format("{} selected", Selection.Indices.size());
-		const float Left = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(Selected.c_str()).x;
-		if (Left >= ImGui::GetItemRectMax().x + 8.f * Scale)
-		{
-			ImGui::GetWindowDrawList()->AddText({Left, (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y - ImGui::GetFontSize()) * 0.5f}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Selected.c_str());
-		}
-	}
-
 	ImGui::EndDisabled();
 	const bool bFocusRequested = DrawPreviewOutlinerContents(Selection, Objects, bDragging, State, Folders);
 	ToolUI.EndPanel();

@@ -123,6 +123,7 @@ struct FOutputLogModel::FImplementation
 	std::vector<std::string> CommandHistory;
 	FLogTextSelection Selection;
 	std::array<bool, static_cast<std::size_t>(ELogLevel::Off) + 1> LevelVisible = {true, true, true, true, true, true, false};
+	std::array<std::size_t, static_cast<std::size_t>(ELogLevel::Off) + 1> LevelCounts{};
 	std::string Search;
 	std::size_t CommandHistoryIndex = 0;
 	bool bPaused = false;
@@ -192,6 +193,7 @@ void FOutputLogModel::Clear() noexcept
 	Implementation->Log->ClearEditorBuffer();
 	Implementation->Cursor = {};
 	Implementation->Records.clear();
+	Implementation->LevelCounts = {};
 	Implementation->VisibleLines.clear();
 	Implementation->VisibleText.clear();
 	Implementation->Selection.Clear();
@@ -244,6 +246,12 @@ bool FOutputLogModel::IsAutoScroll() const noexcept
 bool FOutputLogModel::IsCategoryColorizationEnabled() const noexcept
 {
 	return Implementation->Options.bColorizeCategories;
+}
+
+std::size_t FOutputLogModel::GetLevelCount(const ELogLevel Level) const noexcept
+{
+	const auto Index = static_cast<std::size_t>(Level);
+	return Index < Implementation->LevelCounts.size() ? Implementation->LevelCounts[Index] : 0;
 }
 
 bool FOutputLogModel::IsLevelVisible(const ELogLevel Level) const noexcept
@@ -384,6 +392,17 @@ void FOutputLogModel::AcknowledgeTailRequest() noexcept
 
 void FOutputLogModel::RebuildVisibleLines()
 {
+	// Every change to the records passes through here, so the per-level counts are kept with the visible lines.
+	Implementation->LevelCounts = {};
+	for (const FLogRecord& Record : Implementation->Records)
+	{
+		const auto Index = static_cast<std::size_t>(Record.Level);
+		if (Index < Implementation->LevelCounts.size())
+		{
+			++Implementation->LevelCounts[Index];
+		}
+	}
+
 	Implementation->VisibleLines.clear();
 	Implementation->VisibleText.clear();
 	Implementation->VisibleLines.reserve(Implementation->Records.size());
