@@ -39,6 +39,30 @@ float GetPropertyLabelWidth()
 	return std::max((TransformLabelWidth + 25.f) * Scale, ImGui::CalcTextSize("Angular damping").x + 12.f * Scale);
 }
 
+// A group of properties inside a component: a muted label with a rule running to the panel edge.
+void DrawPropertySubheader(const std::string_view Label)
+{
+	ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+	ImGui::TextUnformatted(Label.data(), Label.data() + Label.size());
+	ImGui::PopStyleColor();
+	const float Gap = ImGui::GetStyle().ItemSpacing.x;
+	const float Y = std::floor((ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f) + 0.5f;
+	const float Left = ImGui::GetItemRectMax().x + Gap;
+	ImGuiTable* const Table = ImGui::GetCurrentTable();
+	// Inside a table the cell clips to its column, so the rule draws on the row background that spans the table.
+	const float Right = Table ? Table->WorkRect.Max.x : ImGui::GetCurrentWindow()->WorkRect.Max.x;
+	if (Table)
+	{
+		ImGui::TablePushBackgroundChannel();
+	}
+
+	ImGui::GetWindowDrawList()->AddLine({Left, Y}, {Right, Y}, ImGui::GetColorU32(ImGuiCol_Border));
+	if (Table)
+	{
+		ImGui::TablePopBackgroundChannel();
+	}
+}
+
 ImVec4 GetPropertyLabelColor()
 {
 	return ImLerp(ImGui::GetStyleColorVec4(ImGuiCol_Text), ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), 0.6f);
@@ -436,7 +460,7 @@ void DrawMaterialSlots(FToolUIContext& ToolUI, FDetailsPanelState& State, const 
 
 	const float Scale = ImGui::GetFontSize() / 15.f;
 	ImGui::Spacing();
-	ImGui::TextDisabled("Materials");
+	DrawPropertySubheader("Materials");
 	ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {0.f, 2.f * Scale});
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 4.f * Scale});
 	ImGui::BeginDisabled(bDragging);
@@ -715,9 +739,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
 				ImGui::Dummy({1.f, 4.f * Scale});
-				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-				ImGui::TextUnformatted(Group.data(), Group.data() + Group.size());
-				ImGui::PopStyleColor();
+				DrawPropertySubheader(Group);
 			}
 
 			FLevelPropertyValue Candidate = *Previous;
