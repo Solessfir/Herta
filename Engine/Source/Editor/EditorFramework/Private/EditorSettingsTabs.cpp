@@ -380,7 +380,7 @@ void FEditorFramework::FImplementation::DrawProjectSettingsTab()
 		for (std::size_t Index = 0; Index < Choices.size(); ++Index)
 		{
 			const bool bOn = std::ranges::contains(Chosen, std::string_view(Choices[Index]));
-			const float Width = ImGui::CalcTextSize(Choices[Index]).x + 18.f * Scale;
+			const float Width = ToolUIChipWidth(Choices[Index], false);
 			if (Index > 0 && ImGui::GetItemRectMax().x + 4.f * Scale + Width <= ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
 			{
 				ImGui::SameLine();

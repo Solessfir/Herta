@@ -2849,14 +2849,19 @@ std::string ToolUILabel(const std::string_view English)
 	return Text == Key ? std::string(English) : Text;
 }
 
+float ToolUIChipWidth(const char* const Label, const bool bTypeColor)
+{
+	const float Scale = ImGui::GetFontSize() / 15.f;
+	return std::round(ImGui::CalcTextSize(Label, ImGui::FindRenderedTextEnd(Label)).x + 16.f * Scale + (bTypeColor ? 12.f * Scale : 0.f));
+}
+
 bool ToolUIChip(const char* const Label, const bool bSelected, const FToolUIColor* const TypeColor)
 {
 	const float Scale = ImGui::GetFontSize() / 15.f;
 	const char* const LabelEnd = ImGui::FindRenderedTextEnd(Label);
 	const float Height = std::round(22.f * Scale);
-	const float SquareSlot = TypeColor ? 14.f * Scale : 0.f;
-	const float Width = std::round(ImGui::CalcTextSize(Label, LabelEnd).x + 18.f * Scale + SquareSlot);
-	const bool bClicked = ImGui::InvisibleButton(Label, {Width, Height});
+	const float SquareSlot = TypeColor ? 12.f * Scale : 0.f;
+	const bool bClicked = ImGui::InvisibleButton(Label, {ToolUIChipWidth(Label, TypeColor != nullptr), Height});
 	const ImVec2 Minimum = ImGui::GetItemRectMin();
 	const ImVec2 Maximum = ImGui::GetItemRectMax();
 	const bool bHovered = ImGui::IsItemHovered();
@@ -2864,10 +2869,10 @@ bool ToolUIChip(const char* const Label, const bool bSelected, const FToolUIColo
 	Draw->AddRectFilled(Minimum, Maximum, ToImGuiPackedColor(bSelected ? ToolUITheme::NeutralAccent : bHovered ? ToolUITheme::SurfaceHover
 	                                                                                                           : ToolUITheme::Surface2),
 	    Height * 0.5f);
-	float TextX = Minimum.x + 9.f * Scale;
+	float TextX = Minimum.x + 8.f * Scale;
 	if (TypeColor)
 	{
-		const float Square = 8.f * Scale;
+		const float Square = 7.f * Scale;
 		const float Top = std::round((Minimum.y + Maximum.y - Square) * 0.5f);
 		Draw->AddRectFilled({TextX, Top}, {TextX + Square, Top + Square}, ToImGuiPackedColor(*TypeColor), 2.5f * Scale);
 		TextX += SquareSlot;

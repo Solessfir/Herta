@@ -1539,7 +1539,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				continue;
 			}
 
-			const float ChipWidth = ImGui::CalcTextSize(ToolUILabel(ChipLabel).c_str()).x + 32.f * UiScale;
+			const float ChipWidth = ToolUIChipWidth(ToolUILabel(ChipLabel).c_str(), true);
 			if (!bFirst && ImGui::GetItemRectMax().x + 4.f * UiScale + ChipWidth <= ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
 			{
 				ImGui::SameLine();

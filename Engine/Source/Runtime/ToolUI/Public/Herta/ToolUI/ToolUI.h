@@ -198,6 +198,8 @@ void SaveEditorAppearance(const std::filesystem::path& Path, const FEditorAppear
 [[nodiscard]] std::string ToolUILabel(std::string_view English);
 // A pill that filters a list: lit while selected, with an optional type color square before the label. Returns true when clicked.
 bool ToolUIChip(const char* Label, bool bSelected, const FToolUIColor* TypeColor = nullptr);
+// The width ToolUIChip gives Label, for wrapping a row of chips before drawing them.
+float ToolUIChipWidth(const char* Label, bool bTypeColor);
 // Switch for boolean settings, right-aligned within the next item width.
 bool ToolUIToggle(const char* Id, bool* bValue);
 // A single-line text field that edits whole grapheme clusters, so Backspace removes an emoji with its skin tone and the cursor never lands

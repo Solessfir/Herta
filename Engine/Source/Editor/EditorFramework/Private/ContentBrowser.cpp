@@ -777,7 +777,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		float ChipsWidth = 0.f;
 		for (const FContentTypeChip& Chip : ContentTypeChips)
 		{
-			ChipsWidth += ImGui::CalcTextSize(ToolUI.Text(Chip.Text, Chip.Label).c_str()).x + 32.f * Scale + 4.f * Scale;
+			ChipsWidth += ToolUIChipWidth(ToolUI.Text(Chip.Text, Chip.Label).c_str(), true) + 4.f * Scale;
 		}
 
 		const float PathWidth = ImGui::CalcTextSize(State.Folder.c_str()).x + static_cast<float>(std::ranges::count(State.Folder, '/')) * 22.f * Scale + 16.f * Scale;

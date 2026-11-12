@@ -1107,7 +1107,7 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 		const std::string ChipLabel = std::format("{}##Category{}", ChipText, static_cast<int>(Category));
 		const char* const Label = ChipLabel.c_str();
 		const FToolUIColor Color = GetPreviewCategoryColor(Category);
-		const float ChipWidth = ImGui::CalcTextSize(Label).x + 32.f * Scale;
+		const float ChipWidth = ToolUIChipWidth(Label, true);
 		if (ImGui::GetItemRectMax().x + 4.f * Scale + ChipWidth <= ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
 		{
 			ImGui::SameLine();
