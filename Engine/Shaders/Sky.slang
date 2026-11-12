@@ -5,7 +5,7 @@
 [shader("fragment")]
 float4 fragmentMain(FFullscreenOutput Input) : SV_Target
 {
-    if (Visual.Sky.y < 0.5) return float4(0.035, 0.035, 0.035, 1.0);
+    if (Visual.Sky.y < 0.5) return float4(float3(0.035, 0.035, 0.035) * PreExposure(), 1.0);
     float3 Direction = CameraRay(Input.UV);
     float3 Color;
     if (Visual.Atmosphere.w > 0.5 && Visual.AtmosphereGeometry.z < 0.5)
@@ -20,5 +20,5 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
         Color = Environment.SampleLevel(LinearSampler, DirectionUV(Direction), 0).rgb;
     }
 
-    return float4(clamp(Color, 0.0, 65504.0), 1.0);
+    return float4(clamp(Color * PreExposure(), 0.0, 65504.0), 1.0);
 }

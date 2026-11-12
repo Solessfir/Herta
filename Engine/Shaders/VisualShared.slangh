@@ -262,6 +262,18 @@ float3 ComposeProceduralSky(float3 Direction, float3 Scattering)
     return max(0.0, Radiance);
 }
 
+// Scene color is stored times a power of two near the exposure, so half floats hold highlights far above 65504 cd/m^2 in daylight and
+// bloom filters exposed values. Writers multiply by it and readers by its inverse.
+float PreExposure()
+{
+    return Visual.Bloom.z;
+}
+
+float InversePreExposure()
+{
+    return Visual.Bloom.w;
+}
+
 // Automatic exposure meters a grid of log luminance and histograms it over EV -10 to 16 in 64 bins.
 static const int ExposureMeteringSize = 32;
 static const int ExposureHistogramBinCount = 64;

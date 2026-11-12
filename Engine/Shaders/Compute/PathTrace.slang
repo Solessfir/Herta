@@ -181,5 +181,5 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
 
     float4 Sum = SampleIndex == 0 ? float4(Radiance, 1.0) : Accumulation[Id.xy] + float4(Radiance, 1.0);
     Accumulation[Id.xy] = Sum;
-    Output[Id.xy] = float4(min(Sum.rgb / Sum.w, 65504.0), 1.0);
+    Output[Id.xy] = float4(min(Sum.rgb / Sum.w * PreExposure(), 65504.0), 1.0);
 }

@@ -78,10 +78,13 @@ std::expected<void, FPresentationError> FPathTracer::Render(const FPathTraceInpu
 
 	const bool bChanged = NextKey != Key || !Accumulation || Accumulation->GetDescriptor().Extent != Inputs.Extent;
 	std::swap(Key, NextKey);
-	if (!bChanged && SampleCount >= PathTracingSampleLimit)
+	// A finished image is written again when the scale it is stored at moves.
+	if (!bChanged && SampleCount >= PathTracingSampleLimit && Uniforms.Bloom[2] == PreExposure)
 	{
 		return {};
 	}
+
+	PreExposure = Uniforms.Bloom[2];
 
 	if (bChanged)
 	{

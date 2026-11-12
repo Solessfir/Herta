@@ -27,7 +27,7 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
     }
 
     float Scale = Visual.Exposure.x > 0.5 ? 1.0 / (1.2 * exp2(AutoExposure.Load(int3(0, 0, 0)).r)) : Visual.Controls.z;
-    float3 Color = SceneColor.Load(int3(Input.Position.xy, 0)).rgb;
+    float3 Color = SceneColor.Load(int3(Input.Position.xy, 0)).rgb * InversePreExposure();
     // Fog composites here rather than in its own pass, saving a full-resolution HDR write and read.
     if (Visual.Fog.x > 0.0)
     {
@@ -39,7 +39,7 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
     if (Visual.Bloom.x > 0.0)
     {
         // The pyramid sums its levels, each a blur that keeps the scene's average, so mixing it in moves light rather than adding it.
-        float3 Bloom = BloomPyramid.SampleLevel(LinearSampler, Input.UV, 0).rgb;
+        float3 Bloom = BloomPyramid.SampleLevel(LinearSampler, Input.UV, 0).rgb * InversePreExposure();
         Color = Color * (1.0 - Visual.Bloom.y) + Bloom * Visual.Bloom.x;
     }
 

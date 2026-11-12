@@ -914,6 +914,12 @@ struct FMeshRenderer::FImplementation
 	// Adaptation reads last frame's exposure and writes this frame's, alternating between the two.
 	std::array<FTextureHandle, 2> ExposureStates;
 	FComputePipelineHandle ExposurePipeline;
+	// The adapted EV100, read back a few frames later without stalling to choose the scale scene color is stored at.
+	FBufferHandle ExposureValue;
+	std::array<FBufferHandle, 4> ExposureReadback;
+	std::size_t ExposureFrame = 0;
+	float AdaptedEV100 = 8.f;
+	float PreExposure = 1.f;
 	std::size_t ExposureStateIndex = 0;
 	// Each downsampled level, from half resolution, and the upsampled sums of every level below it. The tone mapping composite reads the largest sum.
 	FComputePipelineHandle BloomPipeline;
@@ -1522,12 +1528,25 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		State->SkyView = std::move(*SkyView);
 		if (!VisualShaders.ExposureCompute.Bytecode.empty())
 		{
-			auto Exposure = Device.CreateComputePipeline({.Name = "Exposure", .Shader = std::move(VisualShaders.ExposureCompute), .TextureCount = 3, .StorageTextureCount = 1, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true});
-			if (!Exposure)
+			auto Exposure = Device.CreateComputePipeline({.Name = "Exposure", .Shader = std::move(VisualShaders.ExposureCompute), .TextureCount = 3, .StorageTextureCount = 1, .StorageBufferCount = 1, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true});
+			auto Value = Device.CreateBuffer({.Name = "Adapted exposure value", .Size = sizeof(float), .Usage = EBufferUsage::Storage});
+			if (!Exposure || !Value)
 			{
-				return std::unexpected(Exposure.error());
+				return std::unexpected(!Exposure ? Exposure.error() : Value.error());
 			}
 
+			for (FBufferHandle& Readback : State->ExposureReadback)
+			{
+				auto Created = Device.CreateBuffer({.Name = "Adapted exposure readback", .Size = sizeof(float), .Usage = EBufferUsage::Readback});
+				if (!Created)
+				{
+					return std::unexpected(Created.error());
+				}
+
+				Readback = std::move(*Created);
+			}
+
+			State->ExposureValue = std::move(*Value);
 			State->ExposurePipeline = std::move(*Exposure);
 		}
 
@@ -2114,6 +2133,24 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	State.Uniforms.Exposure[3] = bAutoExposure && !State.bExposureAdapted ? 1.f : 0.f;
 	State.bExposureAdapted = bAutoExposure;
 
+	// Scene color is stored times a power of two near the exposure: half floats then hold highlights far above 65504 cd/m^2 in daylight, and bloom filters exposed values. A power of two scales floats exactly and tone mapping divides it back out, so the readback's delay and the rounding change nothing visible.
+	if (bAutoExposure)
+	{
+		if (const auto Bytes = Device.TryReadBuffer(State.ExposureReadback[(State.ExposureFrame + 1) % State.ExposureReadback.size()]))
+		{
+			float Adapted = 0.f;
+			std::memcpy(&Adapted, Bytes->data(), sizeof(Adapted));
+			// Adaptation never goes below EV100 1, so less is a slot that has not been written yet.
+			if (std::isfinite(Adapted) && Adapted >= 1.f)
+			{
+				State.AdaptedEV100 = Adapted;
+			}
+		}
+	}
+
+	const float StoredEV100 = bAutoExposure ? State.AdaptedEV100 : -std::log2(1.2f * State.Uniforms.Controls[2]);
+	State.PreExposure = State.Uniforms.Sky[3] > 0.5f ? std::exp2(-std::clamp(std::round(StoredEV100), -8.f, 24.f)) : 1.f;
+
 	// The slot written three renders ago has always completed, because the device keeps three frames in flight; until one has, the cascades keep the last range they had.
 	if (State.DepthBoundsPipeline)
 	{
@@ -2248,6 +2285,14 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	// Renderers without the pass-through shaders, such as thumbnail renderers, draw no particles.
 	const bool bParticleShaders = !State.DisplayShaders.DebugVertex.Bytecode.empty() && !State.DisplayShaders.DebugFragment.Bytecode.empty();
 	ExpandParticles(View.View, WorldToClip, bParticleShaders ? View.Particles : std::span<const FRenderParticle>{}, bParticleShaders ? View.Ribbons : std::span<const FRenderRibbon>{}, View.RibbonPoints, View.Lights, State.ParticleVertices, State.ParticleIndices, State.ParticleOrder);
+	for (FColoredClipVertex& Vertex : State.ParticleVertices)
+	{
+		for (std::size_t Channel = 0; Channel < 3; ++Channel)
+		{
+			Vertex.Color[Channel] *= State.PreExposure;
+		}
+	}
+
 	if (!State.ParticleIndices.empty())
 	{
 		const std::size_t VertexBytes = State.ParticleVertices.size() * sizeof(FColoredClipVertex);
@@ -2696,7 +2741,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		}
 	}
 
-	State.Uniforms.Bloom = {BloomLevels > 0 ? State.Uniforms.Bloom[0] / static_cast<float>(BloomLevels) : 0.f, BloomLevels > 0 ? State.Uniforms.Bloom[0] : 0.f, 0.f, 0.f};
+	State.Uniforms.Bloom = {BloomLevels > 0 ? State.Uniforms.Bloom[0] / static_cast<float>(BloomLevels) : 0.f, BloomLevels > 0 ? State.Uniforms.Bloom[0] : 0.f, State.PreExposure, 1.f / State.PreExposure};
 	if (BloomLevels > 0 && (BloomLevels != State.BloomLevels || State.BloomDown[0]->GetDescriptor().Extent != GetMipExtent(Extent, 1)))
 	{
 		for (std::size_t Level = 0; Level < MaximumBloomLevels; ++Level)
@@ -2713,7 +2758,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			}
 
 			const FExtent2D LevelExtent = GetMipExtent(Extent, static_cast<std::uint32_t>(Level) + 1);
-			auto Down = Device.CreateTexture({.Name = "Bloom downsample", .Extent = LevelExtent, .Format = ETextureFormat::Rgba16Float, .bStorage = true});
+			auto Down = Device.CreateTexture({.Name = "Bloom downsample", .Extent = LevelExtent, .Format = ETextureFormat::R11G11B10Float, .bStorage = true});
 			if (!Down)
 			{
 				return std::unexpected(Down.error());
@@ -2722,7 +2767,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			State.BloomDown[Level] = std::move(*Down);
 			if (Level + 1 < BloomLevels)
 			{
-				auto Up = Device.CreateTexture({.Name = "Bloom upsample", .Extent = LevelExtent, .Format = ETextureFormat::Rgba16Float, .bStorage = true});
+				auto Up = Device.CreateTexture({.Name = "Bloom upsample", .Extent = LevelExtent, .Format = ETextureFormat::R11G11B10Float, .bStorage = true});
 				if (!Up)
 				{
 					return std::unexpected(Up.error());
@@ -3841,8 +3886,15 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				const bool bRestart = State.Uniforms.Exposure[3] > 0.5f;
 				const std::array Sources{State.HdrColor, FogSource, bRestart ? State.White : State.ExposureStates[State.ExposureStateIndex]};
 				const std::array Adapted{FStorageTextureBinding{.Texture = State.ExposureStates[Next]}};
+				const std::array Value{State.ExposureValue};
 				const auto Timer = TimedPass("Exposure");
-				if (const auto Result = Device.Dispatch({.Pipeline = State.ExposurePipeline, .Textures = Sources, .StorageTextures = Adapted, .Uniforms = GetVisualUniformBytes(State.Uniforms), .GroupCount = {1, 1, 1}}); !Result)
+				auto Result = Device.Dispatch({.Pipeline = State.ExposurePipeline, .Textures = Sources, .StorageTextures = Adapted, .StorageBuffers = Value, .Uniforms = GetVisualUniformBytes(State.Uniforms), .GroupCount = {1, 1, 1}});
+				if (Result)
+				{
+					Result = Device.CopyBuffer(State.ExposureValue, State.ExposureReadback[State.ExposureFrame++ % State.ExposureReadback.size()]);
+				}
+
+				if (!Result)
 				{
 					return GraphResult(Result);
 				}

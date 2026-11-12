@@ -9,7 +9,7 @@ struct FBloomUniforms
 [[vk::binding(0, 0)]] Texture2D<float4> Source;
 // The same-resolution downsampled level the upsample adds back.
 [[vk::binding(1, 0)]] Texture2D<float4> Detail;
-[[vk::binding(384, 0)]] [format("rgba16f")] RWTexture2D<float4> Target;
+[[vk::binding(384, 0)]] [format("r11f_g11f_b10f")] RWTexture2D<float3> Target;
 [[vk::binding(128, 0)]] SamplerState LinearSampler;
 
 float3 Tap(float2 UV)
@@ -20,6 +20,7 @@ float3 Tap(float2 UV)
 }
 
 // Karis's average weighs each tap by its inverse luminance, so a single very bright pixel cannot flicker the whole pyramid as it moves.
+// Scene color is pre-exposed, so the weights act on exposed values in a night street as in sunlight.
 float KarisWeight(float3 Color)
 {
     return 1.0 / (1.0 + dot(Color, float3(0.2126, 0.7152, 0.0722)));
@@ -64,5 +65,5 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
         Result /= Total;
     }
 
-    Target[Id.xy] = float4(Result, 1.0);
+    Target[Id.xy] = Result;
 }

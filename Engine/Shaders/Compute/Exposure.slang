@@ -3,6 +3,8 @@
 [[vk::binding(1, 0)]] Texture2D<float4> FogVolume;
 [[vk::binding(2, 0)]] Texture2D<float4> Previous;
 [[vk::binding(384, 0)]] [format("rgba32f")] RWTexture2D<float4> Adapted;
+// The adapted EV100 again, for the renderer to read back and choose the scale scene color is stored at.
+[[vk::binding(385, 0)]] RWStructuredBuffer<float> AdaptedValue;
 
 static const uint ExposureThreads = 256;
 static const uint CellsPerThread = ExposureMeteringSize * ExposureMeteringSize / ExposureThreads;
@@ -33,7 +35,7 @@ void computeMain(uint Thread : SV_GroupIndex)
         for (int Tap = 0; Tap < 4; ++Tap)
         {
             float2 UV = CellUV + float2((Tap & 1) != 0 ? Offset : -Offset, (Tap & 2) != 0 ? Offset : -Offset);
-            float3 Color = SceneColor.SampleLevel(LinearSampler, UV, 0).rgb;
+            float3 Color = SceneColor.SampleLevel(LinearSampler, UV, 0).rgb * InversePreExposure();
             // Tone mapping composites fog at full resolution; a bilinear tap is enough for metering.
             if (Visual.Fog.x > 0.0)
             {
@@ -81,13 +83,14 @@ void computeMain(uint Thread : SV_GroupIndex)
     // EV100 1, a night street, is the darkest the camera adapts to.
     float Target = clamp(Sum / max(Weight, 1e-6) + 2.0 - Visual.Exposure.y, 1.0, 18.0);
     float4 Last = Previous.Load(int3(0, 0, 0));
-    if (Visual.Exposure.w > 0.5 || Last.a < 0.5 || !isfinite(Last.r))
+    float Value = Target;
+    if (Visual.Exposure.w < 0.5 && Last.a > 0.5 && isfinite(Last.r))
     {
-        Adapted[uint2(0, 0)] = float4(Target, 0.0, 0.0, 1.0);
-        return;
+        // Eyes adapt to brighter scenes faster than to darker ones.
+        float Rate = Target > Last.r ? 3.0 : 1.5;
+        Value = lerp(Last.r, Target, 1.0 - exp(-Visual.Exposure.z * Rate));
     }
 
-    // Eyes adapt to brighter scenes faster than to darker ones.
-    float Rate = Target > Last.r ? 3.0 : 1.5;
-    Adapted[uint2(0, 0)] = float4(lerp(Last.r, Target, 1.0 - exp(-Visual.Exposure.z * Rate)), 0.0, 0.0, 1.0);
+    Adapted[uint2(0, 0)] = float4(Value, 0.0, 0.0, 1.0);
+    AdaptedValue[0] = Value;
 }

@@ -543,7 +543,7 @@ float4 ShadeMesh(FVertexOutput Input, FMaterialSample Material)
     }
     float Coverage = bFringe ? Material.Alpha : 1.0;
     if (Visual.Sky.w < 0.5) return float4(Result / (1.0 + Result), Coverage);
-    return float4(clamp(Result, 0.0, 65504.0), Coverage);
+    return float4(clamp(Result * PreExposure(), 0.0, 65504.0), Coverage);
 }
 
 [shader("fragment")]

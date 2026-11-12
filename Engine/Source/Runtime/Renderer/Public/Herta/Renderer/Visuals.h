@@ -262,8 +262,8 @@ struct alignas(16) FVisualUniforms
 	// The first directional light: the direction towards it, with w 1 when there is one, and its color times intensity.
 	std::array<float, 4> SunDirection{};
 	std::array<float, 4> SunRadiance{};
-	// x is the bloom intensity over the pyramid's level count and y the intensity, both zero when bloom is off.
-	std::array<float, 4> Bloom{};
+	// x is the bloom intensity over the pyramid's level count and y the intensity, both zero when bloom is off. z is the power of two scene color is stored times, and w its inverse.
+	std::array<float, 4> Bloom{0, 0, 1, 1};
 	// Maps this frame's clip space to the previous frame's, for camera motion.
 	std::array<float, 16> ClipToPreviousClip{};
 	std::array<FShadowUniform, MaximumRenderShadows> Shadows{};

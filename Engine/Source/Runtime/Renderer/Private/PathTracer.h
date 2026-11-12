@@ -47,5 +47,7 @@ private:
 	std::vector<std::byte> Key;
 	std::vector<std::byte> NextKey;
 	std::uint32_t SampleCount = 0;
+	// The scale the output was last written at.
+	float PreExposure = 1.f;
 };
 }
