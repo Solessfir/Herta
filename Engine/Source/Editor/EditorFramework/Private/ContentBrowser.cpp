@@ -188,6 +188,42 @@ void DrawAssetModals(FContentBrowserState& State, FPreviewAssets& Assets)
 	}
 }
 
+// The type chips, in order, with the importers each covers.
+struct FContentTypeChip
+{
+	const char* Label;
+	FToolUIColor Color;
+	std::array<std::string_view, 3> Importers;
+};
+
+constexpr std::array<FContentTypeChip, 4> ContentTypeChips{{
+    {.Label = "Models", .Color = ToolUITheme::TypeMesh, .Importers = {"Gltf", "Blender", ""}},
+    {.Label = "Materials", .Color = ToolUITheme::TypeLight, .Importers = {"Material", "Texture", ""}},
+    {.Label = "Sounds", .Color = ToolUITheme::TypeAudio, .Importers = {"Sound", "AudioGraph", ""}},
+    {.Label = "Graphs", .Color = ToolUITheme::TypeEffect, .Importers = {"VfxGraph", "GameplayGraph", "StateTree"}},
+}};
+
+// The chip an asset falls under, or -1 for importers no chip names.
+[[nodiscard]] int GetContentTypeChip(const std::string_view Importer)
+{
+	for (std::size_t Chip = 0; Chip < ContentTypeChips.size(); ++Chip)
+	{
+		if (!Importer.empty() && std::ranges::find(ContentTypeChips[Chip].Importers, Importer) != ContentTypeChips[Chip].Importers.end())
+		{
+			return static_cast<int>(Chip);
+		}
+	}
+
+	return -1;
+}
+
+[[nodiscard]] ImU32 GetContentTypeColor(const std::string_view Importer)
+{
+	const int Chip = GetContentTypeChip(Importer);
+	const FToolUIColor Color = Chip >= 0 ? ContentTypeChips[static_cast<std::size_t>(Chip)].Color : ToolUITheme::TypeOther;
+	return IM_COL32(Color.Red, Color.Green, Color.Blue, 255);
+}
+
 bool DrawFolderTile(const std::string& Path, FContentBrowserState& State, FPreviewAssets* const Assets, const ImVec2 Size, const float Scale, const bool bList)
 {
 	ImGui::PushID(Path.c_str());
@@ -444,9 +480,9 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 	if (bList)
 	{
 		ToolUIIcon(IsPlaceableContentAsset(Asset) ? EToolUIMenuIcon::Cube : Asset.Importer == "Material" ? EToolUIMenuIcon::Material
-		                                                    : IsSoundContentAsset(Asset)    ? EToolUIMenuIcon::Sound
-		                                                                                    : EToolUIMenuIcon::Panel,
-		    Start.x + Font * 0.5f + 6.f * Scale, Start.y + Size.y * 0.5f, Scale);
+		                                                                : IsSoundContentAsset(Asset)     ? EToolUIMenuIcon::Sound
+		                                                                                                 : EToolUIMenuIcon::Panel,
+		    Start.x + Font * 0.5f + 6.f * Scale, Start.y + Size.y * 0.5f, Scale, GetContentTypeColor(Asset.Importer));
 		const auto Name = Leaf(Asset.Label);
 		ImGui::RenderTextClipped({Start.x + Font + 16.f * Scale, Start.y + (Size.y - Font) * 0.5f}, {Start.x + Size.x - 4.f * Scale, Start.y + Size.y}, Name.data(), Name.data() + Name.size(), nullptr);
 		ImGui::PopID();
@@ -470,6 +506,7 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 		    (Minimum.x + Maximum.x) * 0.5f, (Minimum.y + Maximum.y) * 0.5f, std::max(Scale, IconSize / 32.f));
 	}
 
+	Draw->AddRectFilled({Minimum.x + 6.f, Maximum.y - 2.f * Scale}, {Maximum.x - 6.f, Maximum.y}, GetContentTypeColor(Asset.Importer), Scale);
 	const auto Name = Leaf(Asset.Label);
 	ImGui::RenderTextClipped({Start.x + 4.f, Maximum.y + Font * 0.3f}, {Start.x + Size.x - 4.f, Maximum.y + Font * 1.3f}, Name.data(), Name.data() + Name.size(), nullptr, {0.5f, 0.f});
 	ImGui::PopID();
@@ -499,6 +536,7 @@ void FContentBrowserState::Refresh(const std::span<const FPreviewAssetOption> Op
 	}
 
 	Generation = NewGeneration;
+	FolderAssetCounts.clear();
 	Assets.assign(Options.begin(), Options.end());
 	std::set<std::string> Paths{"Engine", "Game"};
 	Paths.insert(Directories.begin(), Directories.end());
@@ -579,6 +617,21 @@ void FContentBrowserState::RefreshFolders()
 
 void FContentBrowserState::Filter()
 {
+	// The folder list only changes in Refresh, which filters afterwards, so the counts are rebuilt here when they fall out of step.
+	if (FolderAssetCounts.size() != Folders.size())
+	{
+		FolderAssetCounts.assign(Folders.size(), 0);
+		for (const FPreviewAssetOption& Asset : Assets)
+		{
+			const std::size_t Slash = Asset.Label.find_last_of('/');
+			const auto Parent = Slash == std::string::npos ? Folders.end() : std::ranges::find(Folders, std::string_view(Asset.Label).substr(0, Slash));
+			if (Parent != Folders.end())
+			{
+				++FolderAssetCounts[static_cast<std::size_t>(Parent - Folders.begin())];
+			}
+		}
+	}
+
 	const bool bSearching = Search[0] != '\0';
 	std::vector<std::string_view> FolderCandidates;
 	std::vector<std::size_t> FolderIndices;
@@ -604,7 +657,8 @@ void FContentBrowserState::Filter()
 	std::vector<std::size_t> Indices;
 	for (std::size_t Index = 0; Index < Assets.size(); ++Index)
 	{
-		if (IsInside(Assets[Index].Label, Folder) && (bSearching || Assets[Index].Label.find('/', Folder.size() + 1) == std::string::npos))
+		const bool bTypeShown = TypeFilter < 0 || GetContentTypeChip(Assets[Index].Importer) == TypeFilter;
+		if (bTypeShown && IsInside(Assets[Index].Label, Folder) && (bSearching || Assets[Index].Label.find('/', Folder.size() + 1) == std::string::npos))
 		{
 			Candidates.emplace_back(Assets[Index].Label);
 			Indices.push_back(Index);
@@ -692,22 +746,97 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		ImGui::PushStyleColor(ImGuiCol_NavCursor, {0.f, 0.f, 0.f, 0.f});
 		ImGui::PushStyleVar(ImGuiStyleVar_SelectableRounding, ImGui::GetStyle().FrameRounding);
 		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {8.f * Scale, 5.f * Scale});
+		const float ViewSize = ImGui::GetFrameHeight();
+		const float Spacing = ImGui::GetStyle().ItemSpacing.x;
+		const float RowRight = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+		const auto IconButton = [&](const char* const Id, const EToolUIMenuIcon Icon, const bool bLit, const char* const Tip)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Button, bLit ? ImGui::GetStyleColorVec4(ImGuiCol_Button) : ImVec4{});
+			const bool bClicked = ImGui::Button(Id, {ViewSize, ViewSize});
+			ImGui::PopStyleColor();
+			const ImVec2 Center{(ImGui::GetItemRectMin().x + ImGui::GetItemRectMax().x) * 0.5f, (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f};
+			ToolUIIcon(Icon, Center.x, Center.y, 0.9f * Scale, ImGui::GetColorU32(bLit || ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled));
+			ImGui::SetItemTooltip("%s", Tip);
+			return bClicked;
+		};
+
+		if (IconButton("##ContentSidebar", EToolUIMenuIcon::Panel, State.bSidebarOpen, "Show or hide the folder tree"))
+		{
+			State.bSidebarOpen = !State.bSidebarOpen;
+		}
+
+		ImGui::SameLine();
 		if (ToolUIButton("Import...", EToolUIMenuIcon::Import, ImGui::GetFontSize() + 10.f * Scale))
 		{
 			bImport = true;
 		}
 
-		const float SearchWidth = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x - ImGui::GetItemRectMax().x - ImGui::GetStyle().ItemSpacing.x;
-		if (SearchWidth >= 180.f * Scale)
+		// The path: each folder above the current one is a button, and the current one reads as plain text.
+		float ChipsWidth = 0.f;
+		for (const FContentTypeChip& Chip : ContentTypeChips)
+		{
+			ChipsWidth += ImGui::CalcTextSize(Chip.Label).x + 32.f * Scale + 4.f * Scale;
+		}
+
+		const float PathWidth = ImGui::CalcTextSize(State.Folder.c_str()).x + static_cast<float>(std::ranges::count(State.Folder, '/')) * 22.f * Scale + 16.f * Scale;
+		const float Remaining = RowRight - ImGui::GetItemRectMax().x - Spacing - ViewSize - Spacing;
+		// Narrow panels drop the chips first, then the path, so the search always keeps a usable width.
+		const bool bShowPath = Remaining >= PathWidth + 160.f * Scale;
+		const bool bShowChips = Remaining >= PathWidth + ChipsWidth + 220.f * Scale;
+		std::string NavigateTo;
+		if (bShowPath)
+		{
+			ImGui::SameLine();
+			const ImVec2 PathMinimum = ImGui::GetCursorScreenPos();
+			ImGui::GetWindowDrawList()->AddRectFilled(PathMinimum, {PathMinimum.x + PathWidth, PathMinimum.y + ViewSize}, ImGui::GetColorU32(ImGuiCol_FrameBg), ImGui::GetStyle().FrameRounding);
+			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 5.f * Scale});
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.f, 0.f});
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{});
+			ImGui::SetCursorScreenPos({PathMinimum.x + 2.f * Scale, PathMinimum.y});
+			for (std::size_t Start = 0; Start < State.Folder.size();)
+			{
+				const std::size_t Slash = State.Folder.find('/', Start);
+				const std::size_t End = Slash == std::string::npos ? State.Folder.size() : Slash;
+				const std::string Segment = State.Folder.substr(Start, End - Start);
+				ImGui::PushID(static_cast<int>(Start));
+				if (Slash == std::string::npos)
+				{
+					ImGui::AlignTextToFramePadding();
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 6.f * Scale);
+					ImGui::TextUnformatted(Segment.c_str());
+				}
+				else
+				{
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+					if (ImGui::Button(Segment.c_str()))
+					{
+						NavigateTo = State.Folder.substr(0, End);
+					}
+
+					ImGui::SameLine();
+					ImGui::AlignTextToFramePadding();
+					ImGui::TextUnformatted("/");
+					ImGui::PopStyleColor();
+					ImGui::SameLine();
+				}
+
+				ImGui::PopID();
+				Start = End + 1;
+			}
+
+			ImGui::PopStyleColor();
+			ImGui::PopStyleVar(2);
+			ImGui::SameLine(PathMinimum.x + PathWidth - ImGui::GetWindowPos().x + Spacing);
+		}
+		else
 		{
 			ImGui::SameLine();
 		}
 
-		// The view options share the search row, so the panel needs no footer.
-		const float ViewSize = ImGui::GetFrameHeight();
-		ImGui::SetNextItemWidth(-(ViewSize + ImGui::GetStyle().ItemSpacing.x));
+		ImGui::SetNextItemWidth(-(ViewSize + Spacing + (bShowChips ? ChipsWidth + Spacing : 0.f)));
 
-		if (ToolUI.DrawSearchField("##ContentSearch", "Search assets", State.Search.data(), State.Search.size()))
+		const std::string SearchHint = std::format("Search in {}", Leaf(State.Folder));
+		if (ToolUI.DrawSearchField("##ContentSearch", SearchHint.c_str(), State.Search.data(), State.Search.size()))
 		{
 			if (Assets && !FinishFolderRename(State, *Assets))
 			{
@@ -717,15 +846,38 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			State.Filter();
 		}
 
-		ImGui::SameLine();
-		if (ImGui::Button("##ContentView", {ViewSize, ViewSize}))
+		if (!NavigateTo.empty())
+		{
+			NavigateContentFolder(State, NavigateTo, Assets);
+		}
+
+		if (bShowChips)
+		{
+			const float ChipOffset = (ViewSize - std::round(22.f * Scale)) * 0.5f;
+			for (std::size_t Chip = 0; Chip < ContentTypeChips.size(); ++Chip)
+			{
+				ImGui::SameLine(0.f, Chip == 0 ? Spacing : 4.f * Scale);
+				ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ChipOffset);
+				if (ToolUIChip(ContentTypeChips[Chip].Label, State.TypeFilter == static_cast<int>(Chip), &ContentTypeChips[Chip].Color))
+				{
+					State.TypeFilter = State.TypeFilter == static_cast<int>(Chip) ? -1 : static_cast<int>(Chip);
+					State.Filter();
+				}
+			}
+		}
+		else if (State.TypeFilter >= 0)
+		{
+			// A chip that no longer fits must not keep filtering unseen.
+			State.TypeFilter = -1;
+			State.Filter();
+		}
+
+		ImGui::SameLine(RowRight - ViewSize - ImGui::GetWindowPos().x);
+		if (IconButton("##ContentView", EToolUIMenuIcon::Grid, false, "View options. Ctrl+Wheel over the grid also changes the thumbnail size."))
 		{
 			ImGui::OpenPopup("##ContentViewOptions");
 		}
 
-		const ImVec2 ViewCenter{(ImGui::GetItemRectMin().x + ImGui::GetItemRectMax().x) * 0.5f, (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f};
-		ToolUIIcon(EToolUIMenuIcon::Grid, ViewCenter.x, ViewCenter.y, 0.9f * Scale, ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled));
-		ImGui::SetItemTooltip("View options. Ctrl+Wheel over the grid also changes the thumbnail size.");
 		ImGui::PopStyleVar();
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12.f * Scale, 10.f * Scale});
 		if (ImGui::BeginPopup("##ContentViewOptions"))
@@ -1027,7 +1179,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		// Only an error takes a line under the grid.
 		const float Footer = State.FolderError.empty() ? 0.f : ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
 		const ImVec2 Available = ImGui::GetContentRegionAvail();
-		const bool bShowFolders = Available.x > 250.f * Scale;
+		const bool bShowFolders = State.bSidebarOpen && Available.x > 250.f * Scale;
 		bool bFoldersChanged = false;
 		if (bShowFolders)
 		{
@@ -1079,7 +1231,15 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 					const ImVec2 Minimum = ImGui::GetItemRectMin();
 					const float IconX = RowStart.x + ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.x * 3.f + 6.f * Scale;
 					ToolUIIcon(EToolUIMenuIcon::Folder, IconX, (Minimum.y + ImGui::GetItemRectMax().y) * 0.5f, Scale);
-					ImGui::RenderTextClipped({IconX + 12.f * Scale, RowStart.y + ImGui::GetStyle().FramePadding.y}, ImGui::GetItemRectMax(), Label.data(), Label.data() + Label.size(), nullptr);
+					// The count of assets directly inside sits at the row's right edge.
+					const std::string Count = Index < State.FolderAssetCounts.size() && State.FolderAssetCounts[Index] > 0 ? std::to_string(State.FolderAssetCounts[Index]) : std::string{};
+					const float CountWidth = Count.empty() ? 0.f : ImGui::CalcTextSize(Count.c_str()).x + 8.f * Scale;
+					const ImVec2 RowMaximum = ImGui::GetItemRectMax();
+					ImGui::RenderTextClipped({IconX + 12.f * Scale, RowStart.y + ImGui::GetStyle().FramePadding.y}, {RowMaximum.x - CountWidth, RowMaximum.y}, Label.data(), Label.data() + Label.size(), nullptr);
+					if (!Count.empty())
+					{
+						ImGui::GetWindowDrawList()->AddText({RowMaximum.x - CountWidth + 2.f * Scale, RowStart.y + ImGui::GetStyle().FramePadding.y}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Count.c_str());
+					}
 					if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup) && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
 					{
 						State.ContextFolder = Path;

@@ -45,6 +45,12 @@ struct FContentBrowserState
 	std::uint64_t Generation = std::numeric_limits<std::uint64_t>::max();
 	float Zoom = 3.f;
 	float SidebarWidth = 190.f;
+	// The folder tree beside the grid; the button before the path hides it.
+	bool bSidebarOpen = true;
+	// The type chip in effect, as an index into the chips, or -1 for every type.
+	int TypeFilter = -1;
+	// Assets directly inside each of Folders, shown beside the tree rows.
+	std::vector<int> FolderAssetCounts;
 
 	std::array<char, 256> FolderName{};
 	std::string RenamingFolder;
