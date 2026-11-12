@@ -92,10 +92,16 @@ public:
 		Commands.emplace_back(Name, std::move(Run));
 	}
 
+	void AddStatusText(std::function<std::string()> GetText) override
+	{
+		StatusTexts.push_back(std::move(GetText));
+	}
+
 	FRecordingHost Host;
 	std::vector<std::pair<std::string, std::unique_ptr<IEditorPanel>>> Panels;
 	std::vector<std::pair<std::string, std::function<void()>>> MenuItems;
 	std::vector<std::pair<std::string, FEditorPluginCommand>> Commands;
+	std::vector<std::function<std::string()>> StatusTexts;
 };
 }
 

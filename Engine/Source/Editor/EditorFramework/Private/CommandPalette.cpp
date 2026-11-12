@@ -32,6 +32,7 @@ void FEditorFramework::FImplementation::DrawCommandPalette()
 		bCommandPaletteRequested = true;
 	}
 
+	bCommandPaletteRequested |= ToolUI->ConsumeTitleSearchClick();
 	if (std::exchange(bCommandPaletteRequested, false))
 	{
 		CommandPaletteQuery.fill('\0');

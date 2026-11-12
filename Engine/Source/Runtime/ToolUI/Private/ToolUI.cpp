@@ -445,6 +445,9 @@ struct FToolUIContext::FImplementation
 	// Tab badges by panel window ID.
 	std::unordered_map<ImGuiID, std::string> PanelBadges;
 	std::string LevelTabLabel = "Level";
+	std::string TitleSearchHint;
+	std::string TitleSearchShortcut;
+	bool bTitleSearchClicked = false;
 	// Whether each open BeginPanel began an ImGui window, so EndPanel ends only those.
 	std::vector<bool> PanelBegun;
 	std::optional<FToolUIError> PendingError;
@@ -2486,6 +2489,17 @@ std::span<const FToolUIItem> FToolUIContext::GetRecordedItems() const noexcept
 	return Implementation->ItemRecorder.Items;
 }
 
+void FToolUIContext::SetTitleSearch(const std::string_view Hint, const std::string_view Shortcut)
+{
+	Implementation->TitleSearchHint = Hint;
+	Implementation->TitleSearchShortcut = Shortcut;
+}
+
+bool FToolUIContext::ConsumeTitleSearchClick() noexcept
+{
+	return std::exchange(Implementation->bTitleSearchClicked, false);
+}
+
 void FToolUIContext::SetPanelBadge(const std::string_view Name, const std::string_view Badge)
 {
 	const ImGuiID Id = ImHashStr(Name.data(), Name.size());
@@ -3125,6 +3139,41 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		}
 
 		Implementation->MainMenuRight = ImGui::GetItemRectMax().x + 8.f * ChromeScale;
+
+		// The search box sits after the menus, inside the region the title bar hands to the UI, so it takes clicks rather than dragging the window. A narrow window drops it.
+		const float SearchWidth = 250.f * ChromeScale;
+		if (!Implementation->TitleSearchHint.empty() && Viewport->Size.x > 1100.f * ChromeScale)
+		{
+			const float SearchHeight = 24.f * ChromeScale;
+			const ImVec2 Minimum{Implementation->MainMenuRight + 6.f * ChromeScale, ViewportMinimum.y + std::round((TitleBarHeight - SearchHeight) * 0.5f)};
+			const ImVec2 Maximum{Minimum.x + SearchWidth, Minimum.y + SearchHeight};
+			ImGui::SetCursorScreenPos(Minimum);
+			if (ImGui::InvisibleButton("##TitleSearch", {SearchWidth, SearchHeight}))
+			{
+				Implementation->bTitleSearchClicked = true;
+			}
+
+			const bool bHovered = ImGui::IsItemHovered();
+			ImDrawList* const Draw = ImGui::GetWindowDrawList();
+			Draw->AddRectFilled(Minimum, Maximum, ToImGuiPackedColor(ToolUITheme::Surface1), 6.f * ChromeScale);
+			Draw->AddRect(Minimum, Maximum, ToImGuiPackedColor(bHovered ? ToolUITheme::Border : ToolUITheme::BorderSoft), 6.f * ChromeScale);
+			const float CenterY = (Minimum.y + Maximum.y) * 0.5f;
+			const ImU32 Muted = ToImGuiPackedColor(bHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted);
+			DrawToolUIIcon(Draw, {Minimum.x + 14.f * ChromeScale, CenterY}, ChromeScale * 0.75f, Muted, EToolUIMenuIcon::Search);
+			const float KeyFont = ImGui::GetFontSize() * 0.85f;
+			const ImVec2 KeySize = ImGui::GetFont()->CalcTextSizeA(KeyFont, FLT_MAX, 0.f, Implementation->TitleSearchShortcut.c_str());
+			const float KeyLeft = Maximum.x - KeySize.x - 14.f * ChromeScale;
+			const ImVec4 HintClip{Minimum.x, Minimum.y, KeyLeft - 6.f * ChromeScale, Maximum.y};
+			Draw->AddText(nullptr, 0.f, {Minimum.x + 28.f * ChromeScale, CenterY - ImGui::GetFontSize() * 0.5f}, Muted, Implementation->TitleSearchHint.c_str(), nullptr, 0.f, &HintClip);
+			if (!Implementation->TitleSearchShortcut.empty())
+			{
+				Draw->AddRectFilled({KeyLeft - 5.f * ChromeScale, CenterY - KeyFont * 0.5f - 2.f * ChromeScale}, {Maximum.x - 5.f * ChromeScale, CenterY + KeyFont * 0.5f + 2.f * ChromeScale}, ToImGuiPackedColor(ToolUITheme::Surface2), 4.f * ChromeScale);
+				Draw->AddText(nullptr, KeyFont, {KeyLeft, CenterY - KeyFont * 0.5f}, ToImGuiPackedColor(ToolUITheme::TextMuted), Implementation->TitleSearchShortcut.c_str());
+			}
+
+			Implementation->MainMenuRight = Maximum.x + 8.f * ChromeScale;
+		}
+
 		ImGui::EndMenuBar();
 	}
 

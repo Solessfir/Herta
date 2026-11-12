@@ -100,7 +100,7 @@ Press the backtick key to open Output Log and focus its command field; pressing 
 
 ## Command palette
 
-**Ctrl+K**, or **Tools > Command palette**, searches entities, assets, and console commands in one list with the same fuzzy matching as the asset pickers. Up and Down move, Enter chooses, and Esc closes. Choosing an entity selects it, reveals it in the Outliner, and focuses the viewport on it. Choosing an asset opens the Content Browser on its folder with the asset selected. Choosing a command puts its name in the Output Log command line, ready for arguments.
+**Ctrl+K**, the search box after the title bar menus, or **Tools > Command palette** searches entities, assets, and console commands in one list with the same fuzzy matching as the asset pickers. Up and Down move, Enter chooses, and Esc closes. Choosing an entity selects it, reveals it in the Outliner, and focuses the viewport on it. Choosing an asset opens the Content Browser on its folder with the asset selected. Choosing a command puts its name in the Output Log command line, ready for arguments.
 
 ## Appearance
 

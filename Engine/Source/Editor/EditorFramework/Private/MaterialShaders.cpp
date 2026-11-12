@@ -92,6 +92,14 @@ FMaterialShaders::~FMaterialShaders()
 	Scope->Wait();
 }
 
+std::size_t FMaterialShaders::GetCompilingCount() const noexcept
+{
+	return static_cast<std::size_t>(std::ranges::count_if(Entries, [](const auto& Entry)
+	{
+		return Entry.second.bInFlight;
+	}));
+}
+
 const FMaterialShaderStatus* FMaterialShaders::GetStatus(const std::string_view Path) const
 {
 	const auto Found = Entries.find(MountedPath(Path));

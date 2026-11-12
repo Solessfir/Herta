@@ -74,6 +74,7 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 	Implementation->PollTextCatalogs(true);
 	Implementation->Localization.SetCulture(Descriptor.ToolUI->GetAppearance().Culture);
 	Descriptor.ToolUI->SetText(&Implementation->Localization);
+	Descriptor.ToolUI->SetTitleSearch("Search everything", "Ctrl K");
 	Implementation->RegisterUITexture = Descriptor.RegisterUITexture;
 	Implementation->UnregisterUITexture = Descriptor.UnregisterUITexture;
 	Implementation->ProjectPath = Descriptor.ProjectPath;
@@ -721,11 +722,13 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::SameLine(0.f, 3.f * Scale);
 		ImGui::AlignTextToFramePadding();
 		// Whatever runs in the background names itself here; the dot is amber while anything does.
-		const char* const Work = Implementation->bProjectBusy                                             ? "Loading project..."
-		                         : Implementation->Assets && Implementation->Assets->IsImporting()        ? "Importing..."
-		                         : Implementation->Assets && Implementation->Assets->IsScanning()         ? "Scanning content..."
-		                         : Implementation->Navigation && Implementation->Navigation->IsBuilding() ? "Building navigation..."
-		                                                                                                  : nullptr;
+		const std::size_t Compiling = Implementation->MaterialShaders ? Implementation->MaterialShaders->GetCompilingCount() : 0;
+		const std::string CompilingText = Compiling == 1 ? "Compiling 1 shader..." : std::format("Compiling {} shaders...", Compiling);
+		const char* const Work = Implementation->bProjectBusy ? "Loading project..." : Implementation->Assets && Implementation->Assets->IsImporting()      ? "Importing..."
+		                                                                           : Implementation->Assets && Implementation->Assets->IsScanning()         ? "Scanning content..."
+		                                                                           : Implementation->Navigation && Implementation->Navigation->IsBuilding() ? "Building navigation..."
+		                                                                           : Compiling > 0                                                          ? CompilingText.c_str()
+		                                                                                                                                                    : nullptr;
 		ImGui::TextDisabled("%s", Work ? Work : "Ready");
 		if (Implementation->bProjectBusy)
 		{
@@ -753,12 +756,25 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			Saved = Minutes < 1 ? "Saved just now" : std::format("Saved {} min ago", Minutes);
 		}
 
+		// Plugins come first on the right, such as the Git branch.
+		const std::vector<std::string> PluginTexts = Implementation->Plugins->GetStatusTexts();
 		const float Gap = 18.f * Scale;
-		const float RightWidth = (Undo.empty() ? 0.f : ImGui::CalcTextSize(Undo.c_str()).x + Gap) + (Saved.empty() ? 0.f : ImGui::CalcTextSize(Saved.c_str()).x);
+		float RightWidth = (Undo.empty() ? 0.f : ImGui::CalcTextSize(Undo.c_str()).x + Gap) + (Saved.empty() ? 0.f : ImGui::CalcTextSize(Saved.c_str()).x);
+		for (const std::string& Text : PluginTexts)
+		{
+			RightWidth += ImGui::CalcTextSize(Text.c_str()).x + Gap;
+		}
+
 		const float RightX = ImGui::GetWindowWidth() - RightWidth - 12.f * Scale;
 		if (RightWidth > 0.f && RightX > ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + Gap)
 		{
 			ImGui::SameLine(RightX);
+			for (const std::string& Text : PluginTexts)
+			{
+				ImGui::TextDisabled("%s", Text.c_str());
+				ImGui::SameLine(0.f, Gap);
+			}
+
 			if (!Undo.empty())
 			{
 				ImGui::TextDisabled("%s", Undo.c_str());

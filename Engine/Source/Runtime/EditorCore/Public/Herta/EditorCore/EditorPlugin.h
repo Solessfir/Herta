@@ -16,7 +16,7 @@
 namespace Herta
 {
 // Bump when anything in this header changes layout or meaning; the editor refuses plugins built against another version.
-inline constexpr std::uint32_t EditorPluginInterfaceVersion = 1;
+inline constexpr std::uint32_t EditorPluginInterfaceVersion = 2;
 
 // Widgets a plugin panel draws with, laid out like the editor's own panels.
 class IEditorPluginUI
@@ -141,6 +141,9 @@ public:
 	virtual void AddMenuItem(std::string_view Label, std::function<void()> OnSelected) = 0;
 	// A console command, which automation and the console run like the editor's own. Mutating commands need a write session.
 	virtual void AddCommand(std::string_view Name, std::string_view Description, bool bMutates, FEditorPluginCommand Run) = 0;
+	// A short text at the right of the status bar, asked for every frame on the main thread, so it must answer from state the plugin
+	// already holds. Empty hides it.
+	virtual void AddStatusText(std::function<std::string()> GetText) = 0;
 };
 
 // What a plugin exports, checked before its Register runs: the interface version, and the engine revision and configuration it was built

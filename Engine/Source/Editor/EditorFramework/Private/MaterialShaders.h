@@ -50,6 +50,8 @@ public:
 
 	void Tick(std::span<const std::string> MountedShaderPaths);
 	const FMaterialShaderStatus* GetStatus(std::string_view Path) const;
+	// Shaders the worker is compiling right now, for the status bar.
+	[[nodiscard]] std::size_t GetCompilingCount() const noexcept;
 	// Compiles a Material Graph from this text instead of its file, so unsaved edits preview live; nothing returns to the file.
 	void SetGraphOverride(std::string_view Path, std::optional<std::string> GraphText);
 

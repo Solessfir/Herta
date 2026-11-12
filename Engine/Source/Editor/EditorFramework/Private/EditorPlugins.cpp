@@ -557,6 +557,28 @@ void FEditorPlugins::AddMenuItem(const std::string_view Label, std::function<voi
 	}
 }
 
+void FEditorPlugins::AddStatusText(std::function<std::string()> GetText)
+{
+	if (GetText)
+	{
+		StatusTexts.push_back(std::move(GetText));
+	}
+}
+
+std::vector<std::string> FEditorPlugins::GetStatusTexts() const
+{
+	std::vector<std::string> Texts;
+	for (const std::function<std::string()>& GetText : StatusTexts)
+	{
+		if (std::string Text = GetText(); !Text.empty())
+		{
+			Texts.push_back(std::move(Text));
+		}
+	}
+
+	return Texts;
+}
+
 void FEditorPlugins::AddCommand(const std::string_view Name, const std::string_view Description, const bool bMutates, FEditorPluginCommand Run)
 {
 	auto Registered = Commands.Register({.Name = std::string(Name),

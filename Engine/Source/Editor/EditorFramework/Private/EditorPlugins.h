@@ -53,6 +53,8 @@ public:
 	void DrawWindowMenuItems();
 	void DrawToolsMenuItems();
 	[[nodiscard]] bool HasToolsMenuItems() const noexcept;
+	// What plugins show in the status bar this frame, in registration order, without the empty ones.
+	[[nodiscard]] std::vector<std::string> GetStatusTexts() const;
 	// The Plugins tab. TabTitle is its localized name.
 	void DrawManager(FToolUIContext& ToolUI, bool& bOpen, bool bFocus, std::string_view TabTitle);
 
@@ -62,6 +64,7 @@ public:
 	IEditorPluginHost& GetHost() override;
 	void AddPanel(std::string_view Title, std::unique_ptr<IEditorPanel> Panel) override;
 	void AddMenuItem(std::string_view Label, std::function<void()> OnSelected) override;
+	void AddStatusText(std::function<std::string()> GetText) override;
 	void AddCommand(std::string_view Name, std::string_view Description, bool bMutates, FEditorPluginCommand Run) override;
 
 	void Log(EEditorPluginLog Level, std::string_view Message) override;
@@ -114,6 +117,7 @@ private:
 	std::unique_ptr<FTaskScope> ProcessScope{};
 
 	std::vector<FMenuItem> MenuItems{};
+	std::vector<std::function<std::string()>> StatusTexts{};
 	std::vector<FPanel> Panels{};
 };
 }

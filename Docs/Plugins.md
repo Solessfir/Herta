@@ -1,6 +1,6 @@
 # Plugins
 
-Editor plugins add panels, Tools menu items, and console commands. A plugin is a folder with a `<Name>.hplugin` descriptor and, for one with code, a `Source` folder that builds into a shared library against `Herta/EditorCore/EditorPlugin.h` alone. Engine plugins live in `Engine/Plugins`; a project's live in its `Plugins` folder and build into its `Binaries`.
+Editor plugins add panels, Tools menu items, console commands, and status bar text. A plugin is a folder with a `<Name>.hplugin` descriptor and, for one with code, a `Source` folder that builds into a shared library against `Herta/EditorCore/EditorPlugin.h` alone. Engine plugins live in `Engine/Plugins`; a project's live in its `Plugins` folder and build into its `Binaries`.
 
 ## Descriptor
 

@@ -270,6 +270,10 @@ public:
 	// Brings the level tab to the front and focuses its viewport.
 	void FocusViewport() noexcept;
 	void SetLevelTabLabel(std::string_view Label);
+	// Shows a search box after the title bar menus, with a hint and the shortcut that opens the same search. An empty hint removes it.
+	void SetTitleSearch(std::string_view Hint, std::string_view Shortcut);
+	// Whether the box was clicked since the last call.
+	[[nodiscard]] bool ConsumeTitleSearchClick() noexcept;
 	// Files dropped onto any editor window since the last call, in drop order.
 	[[nodiscard]] std::vector<std::filesystem::path> TakeDroppedFiles();
 	void PushLogFont();

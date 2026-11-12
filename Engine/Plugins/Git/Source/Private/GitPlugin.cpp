@@ -268,6 +268,11 @@ void Register(IEditorPluginRegistry& Registry)
 {
 	auto Git = std::make_shared<FGitClient>(Registry.GetHost());
 	Registry.AddPanel("Source Control", std::make_unique<FSourceControlPanel>(Git));
+	Registry.AddStatusText([Git]
+	{
+		return Git->bHasStatus ? std::format("{}  {} changed", Git->Status.Branch, Git->Status.Changes.size()) : std::string{};
+	});
+
 	Registry.AddMenuItem("Refresh source control", [Git]
 	{
 		Git->Refresh();
