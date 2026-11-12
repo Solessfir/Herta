@@ -1,8 +1,8 @@
 #include "EditorFrameworkPrivate.h"
-
 #include "Herta/Platform/Platform.h"
 
 #include <fstream>
+#include <sstream>
 
 namespace Herta
 {
@@ -178,7 +178,7 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 				HERTA_LOG_INFO(*Log, EditorLog, "Restart the editor to load {}'s plugins", Result->Project->Descriptor.Name);
 			}
 			ContentBrowserState = {};
-			DetailsPanelState = {};
+			DetailsPanelState = {.CollapsedGroups = std::move(DetailsPanelState.CollapsedGroups)};
 			OutlinerPanelState = {};
 			bCloseProjectPopup = true;
 			RefreshLevel();
@@ -1127,6 +1127,51 @@ void FEditorFramework::FImplementation::SynchronizeOutlinerFlags()
 	if (!Stream)
 	{
 		HERTA_LOG_WARNING(*Log, EditorLog, "Could not save hidden and locked entities to {}", GetOutlinerFlagsPath().string());
+	}
+}
+
+void FEditorFramework::FImplementation::SynchronizeCollapsedGroups()
+{
+	const std::filesystem::path Path = GetUserSettingsDirectory() / "Herta" / "Editor" / "DetailsGroups.txt";
+	if (!SavedCollapsedGroups)
+	{
+		// One "<component type>/<group>" per line.
+		std::istringstream Lines(ReadTextFile(Path));
+		SavedCollapsedGroups.emplace();
+		for (std::string Line; std::getline(Lines, Line);)
+		{
+			if (!Line.empty() && Line.back() == '\r')
+			{
+				Line.pop_back();
+			}
+
+			if (!Line.empty())
+			{
+				SavedCollapsedGroups->insert(Line);
+			}
+		}
+
+		DetailsPanelState.CollapsedGroups = *SavedCollapsedGroups;
+		return;
+	}
+
+	if (DetailsPanelState.CollapsedGroups == *SavedCollapsedGroups)
+	{
+		return;
+	}
+
+	SavedCollapsedGroups = DetailsPanelState.CollapsedGroups;
+	std::error_code Error;
+	std::filesystem::create_directories(Path.parent_path(), Error);
+	std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
+	for (const std::string& Key : *SavedCollapsedGroups)
+	{
+		Stream << Key << '\n';
+	}
+
+	if (!Stream)
+	{
+		HERTA_LOG_WARNING(*Log, EditorLog, "Could not save collapsed Details groups to {}", Path.string());
 	}
 }
 

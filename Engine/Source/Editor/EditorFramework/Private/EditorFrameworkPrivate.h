@@ -329,6 +329,7 @@ struct FEditorFramework::FImplementation
 	void DrawHdrDisplaySettings(FEditorDisplay& Display);
 	void DrawPreferencesTab();
 	void SynchronizeOutlinerFlags();
+	void SynchronizeCollapsedGroups();
 	void DrawCommandPalette();
 	void DrawProjectSettingsTab();
 	void RefreshSelectedVisualEntities();
@@ -452,6 +453,8 @@ struct FEditorFramework::FImplementation
 	bool bOutputLogDrawerOpen = false;
 	FContentBrowserState ContentBrowserState;
 	FDetailsPanelState DetailsPanelState;
+	// The collapsed Details groups as last read or written, so a change is saved once.
+	std::optional<std::set<std::string, std::less<>>> SavedCollapsedGroups;
 	FMaterialPanel MaterialPanel;
 	FGraphDocumentPanel MaterialGraphPanel{GetMaterialGraphDocumentDomain()};
 	// The player character's animation graph, and its compiled state and transition nodes for highlighting Play, rebuilt when the draft changes.

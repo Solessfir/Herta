@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <functional>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -43,6 +44,8 @@ struct FDetailsPanelState
 	std::array<bool, 160> VisualPropertyWasMixed{};
 	// The component a jump chip asked for; its header opens and scrolls into view when next drawn.
 	std::string JumpSection{};
+	// Property groups the user collapsed, as "<component type>/<group>", kept per user across sessions.
+	std::set<std::string, std::less<>> CollapsedGroups{};
 	int ComponentResult = 0;
 	bool bAddComponentRequested = false;
 	bool bScaleLocked = false;

@@ -49,10 +49,10 @@ constexpr float PropertyGroupIndent = 12.f;
 constexpr ImVec4 PropertyGroupBody{1.f, 1.f, 1.f, 0.025f};
 
 // A collapsible group of properties inside a component: a bright header bar over the tinted body its properties draw on.
-bool DrawPropertyGroupHeader(const std::string_view Label, const bool bForceOpen)
+bool DrawPropertyGroupHeader(const std::string_view Label, const std::string_view Component, const bool bForceOpen, std::set<std::string, std::less<>>& Collapsed)
 {
 	const float Scale = ImGui::GetFontSize() / 15.f;
-	ImGuiStorage* const Storage = ImGui::GetStateStorage();
+	const std::string Key = std::format("{}/{}", Component, Label);
 	const ImGuiID Id = ImGui::GetID(Label.data(), Label.data() + Label.size());
 	const ImGuiTable* const Table = ImGui::GetCurrentTable();
 	const float Left = Table ? Table->WorkRect.Min.x : ImGui::GetCursorScreenPos().x;
@@ -66,12 +66,15 @@ bool DrawPropertyGroupHeader(const std::string_view Label, const bool bForceOpen
 	ImGui::PushID(static_cast<int>(Id));
 	if (ImGui::Selectable("##PropertyGroup", false, ImGuiSelectableFlags_SpanAllColumns, {0.f, Height}) && !bForceOpen)
 	{
-		Storage->SetBool(Id, !Storage->GetBool(Id, true));
+		if (!Collapsed.erase(Key))
+		{
+			Collapsed.insert(Key);
+		}
 	}
 
 	ImGui::PopID();
 	ImGui::PopStyleColor(4);
-	const bool bOpen = bForceOpen || Storage->GetBool(Id, true);
+	const bool bOpen = bForceOpen || !Collapsed.contains(Key);
 	const bool bHovered = ImGui::IsItemHovered();
 	const ImVec2 Minimum{Left, ImGui::GetItemRectMin().y};
 	const ImVec2 Maximum{Right, ImGui::GetItemRectMax().y};
@@ -592,7 +595,7 @@ void DrawMaterialSlots(FToolUIContext& ToolUI, FDetailsPanelState& State, const 
 
 	const float Scale = ImGui::GetFontSize() / 15.f;
 	ImGui::Spacing();
-	if (!DrawPropertyGroupHeader("Materials", false))
+	if (!DrawPropertyGroupHeader("Materials", "mesh", false, State.CollapsedGroups))
 	{
 		return;
 	}
@@ -883,7 +886,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 					ImGui::TableNextRow();
 					ImGui::TableSetColumnIndex(0);
 					ImGui::Dummy({1.f, 2.f * Scale});
-					bGroupOpen = DrawPropertyGroupHeader(Group, !Query.empty());
+					bGroupOpen = DrawPropertyGroupHeader(Group, Descriptor.TypeId, !Query.empty(), State.CollapsedGroups);
 				}
 			}
 
