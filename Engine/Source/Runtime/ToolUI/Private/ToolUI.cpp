@@ -1028,7 +1028,7 @@ void DrawDocumentTabs(FToolUIContext::FImplementation& Owner, ImDrawList& DrawLi
 		if (bActive)
 		{
 			const float Thickness = 2.f * Scale;
-			DrawList.AddRectFilled({X + Padding, Maximum.y - Thickness}, {X + Padding + TextSize.x, Maximum.y}, ToImGuiPackedColor(ToolUITheme::NeutralAccent), Thickness * 0.5f);
+			DrawList.AddRectFilled({Minimum.x, Maximum.y - Thickness}, Maximum, ToImGuiPackedColor(ToolUITheme::NeutralAccent), Thickness * 0.5f);
 		}
 
 		if (bClosable && (bActive || bHovered))
