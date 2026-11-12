@@ -77,6 +77,15 @@ struct FHdrDisplaySettings
 	bool bCalibrationPattern = false;
 };
 
+// How FVisualSettings::bGlobalIllumination lights its probes. Both read them the same way.
+enum class EGlobalIlluminationMethod : std::uint8_t
+{
+	// Each probe traces its own rays to any distance and averages them over time (DDGI).
+	IrradianceField,
+	// Each probe level traces one shell of distances at the angular resolution it needs and merges with the level above (Radiance Cascades).
+	RadianceCascades,
+};
+
 struct FVisualSettings
 {
 	// Photographic EV at ISO 100. The saturating luminance is 1.2 * 2^EV100 cd/m^2 (Lagarde and de Rousiers).
@@ -100,9 +109,10 @@ struct FVisualSettings
 	float PenumbraSaturation = 1.f;
 	// Writes per-pixel screen motion for temporal techniques; see FMeshRenderer::GetMotionVectors. Off while nothing reads it.
 	bool bMotionVectors = false;
-	// Dynamic diffuse global illumination from Split Radiance Cascades, which replaces the environment's diffuse light. Needs ray queries.
-	// Off by default so raster regressions stay deterministic; the High tier enables it, and float atomics make its frames differ in their last bits.
+	// Dynamic diffuse global illumination from ray-traced probes, which replaces the environment's diffuse light. Needs ray queries.
+	// Off by default so raster regressions stay deterministic; the High tier enables it.
 	bool bGlobalIllumination = false;
+	EGlobalIlluminationMethod GlobalIlluminationMethod = EGlobalIlluminationMethod::IrradianceField;
 	// Replaces raster shading with the reference path tracer, which accumulates while nothing changes. Needs ray queries; fog, shadow maps, and screen-space effects do not apply.
 	bool bPathTracing = false;
 	bool bStudioPreview = true;
@@ -168,6 +178,11 @@ struct FVisualShaderSet
 	FShaderAsset IrradianceFieldBlendCompute;
 	FShaderAsset IrradianceFieldGatherCompute;
 	FShaderAsset IrradianceFieldReflectCompute;
+	// Radiance cascades, the other global illumination method; it needs all four, and the field's gather and reflections.
+	FShaderAsset RadianceCascadesUpdateCompute;
+	FShaderAsset RadianceCascadesTraceCompute;
+	FShaderAsset RadianceCascadesNearCompute;
+	FShaderAsset RadianceCascadesBlendCompute;
 	// Depth prepass fragments that also write each pixel's shading normal and roughness, alone and beside motion.
 	FShaderAsset DepthSurfaceFragment;
 	FShaderAsset DepthVelocitySurfaceFragment;

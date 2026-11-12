@@ -495,6 +495,24 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 				if (MeshRenderer->SupportsPathTracing())
 				{
 					Toggle("Global illumination", VisualSettings.bGlobalIllumination);
+					ImGui::BeginDisabled(!VisualSettings.bGlobalIllumination);
+					DrawFieldLabel("Method", ValueWidth);
+					constexpr std::array Methods{"Irradiance field", "Radiance cascades"};
+					if (ImGui::BeginCombo("##GlobalIlluminationMethod", Methods[static_cast<std::size_t>(VisualSettings.GlobalIlluminationMethod)]))
+					{
+						for (std::size_t Index = 0; Index < Methods.size(); ++Index)
+						{
+							if (ImGui::Selectable(Methods[Index], Index == static_cast<std::size_t>(VisualSettings.GlobalIlluminationMethod)))
+							{
+								VisualSettings.GlobalIlluminationMethod = static_cast<EGlobalIlluminationMethod>(Index);
+							}
+						}
+
+						ImGui::EndCombo();
+					}
+
+					ImGui::SetItemTooltip("Irradiance field: each probe traces its own rays and averages them over time. Radiance cascades: each probe level traces one shell of distances and merges with the level above");
+					ImGui::EndDisabled();
 					Toggle("Path tracing", VisualSettings.bPathTracing);
 				}
 			}

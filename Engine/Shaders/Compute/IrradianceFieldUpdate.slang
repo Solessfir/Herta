@@ -32,11 +32,14 @@ static const uint CounterTaken = 9;
 static const uint CounterFreeBefore = 10;
 static const uint CounterWords = 12;
 
-// Probes the camera read within this many frames trace every frame; probes only rays read trace every fourth frame while they stay in use.
+// Probes the camera read within this many frames trace every frame until they settle; probes only rays read trace every eighth frame while
+// they stay in use.
 static const uint CameraFrames = 2;
-static const uint RayFrames = 8;
+static const uint RayFrames = 16;
 // Probes left inside geometry once relocation gives up only look again this rarely, in case what they are inside moves.
 static const uint InsideFrames = 64;
+// Blends before a probe the camera reads drops to tracing every other frame.
+static const uint SettledUpdates = 32;
 // Once fewer than an eighth of the probes are free, probes nothing has read for this many frames give up their cells.
 static const uint EvictFrames = 30;
 
@@ -182,7 +185,7 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
         // the camera sees, never take one from them, and dropping them past the list's end does not count as overflow. These also light the
         // places the camera walks into before it arrives.
         bool bRays = Frame - RayFrame <= RayFrames;
-        bool bTurn = ((Probe + Frame) & (bGivenUp ? InsideFrames - 1 : 3u)) == 0u;
+        bool bTurn = ((Probe + Frame) & (bGivenUp ? InsideFrames - 1 : 7u)) == 0u;
         if (!bCamera && bRays && bTurn && !AddToTraceList(Probe))
             InterlockedAdd(Counters[CounterTraced], 0xFFFFFFFFu);
 
@@ -208,6 +211,9 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
             InterlockedAdd(Counters[CounterInside], 1u);
     }
 
-    if (bCamera && (!bGivenUp || ((Probe + Frame) & (InsideFrames - 1)) == 0u))
+    // A settled probe's rays never change direction, so a still scene gives it the same light every frame; it traces every other frame, half
+    // the probes each, and its blend keeps less to follow changes as quickly as before.
+    bool bSettled = !bInside && FieldProbeUpdates(Packed) >= SettledUpdates;
+    if (bCamera && (bGivenUp ? ((Probe + Frame) & (InsideFrames - 1)) == 0u : !bSettled || ((Probe + Frame) & 1u) == 0u))
         AddToTraceList(Probe);
 }

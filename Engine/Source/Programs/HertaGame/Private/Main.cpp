@@ -493,6 +493,10 @@ int RunGame(const FGameOptions& Options)
 	    std::pair{"IrradianceFieldBlend.comp.hshader", &VisualShaders.IrradianceFieldBlendCompute},
 	    std::pair{"IrradianceFieldGather.comp.hshader", &VisualShaders.IrradianceFieldGatherCompute},
 	    std::pair{"IrradianceFieldReflect.comp.hshader", &VisualShaders.IrradianceFieldReflectCompute},
+	    std::pair{"RadianceCascadesUpdate.comp.hshader", &VisualShaders.RadianceCascadesUpdateCompute},
+	    std::pair{"RadianceCascadesTrace.comp.hshader", &VisualShaders.RadianceCascadesTraceCompute},
+	    std::pair{"RadianceCascadesNear.comp.hshader", &VisualShaders.RadianceCascadesNearCompute},
+	    std::pair{"RadianceCascadesBlend.comp.hshader", &VisualShaders.RadianceCascadesBlendCompute},
 	};
 
 	for (const auto& [File, Destination] : VisualShaderFiles)

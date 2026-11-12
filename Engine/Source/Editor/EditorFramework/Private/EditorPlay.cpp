@@ -516,6 +516,7 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 	PlayVisuals.bOcclusionCulling = VisualSettings.bOcclusionCulling;
 	PlayVisuals.bContactShadows = VisualSettings.bContactShadows;
 	PlayVisuals.bGlobalIllumination = VisualSettings.bGlobalIllumination;
+	PlayVisuals.GlobalIlluminationMethod = VisualSettings.GlobalIlluminationMethod;
 	PlayVisuals.PenumbraSaturation = VisualSettings.PenumbraSaturation;
 	PlayVisuals.ExposureCompensation = VisualSettings.ExposureCompensation;
 }

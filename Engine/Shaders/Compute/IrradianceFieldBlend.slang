@@ -13,7 +13,7 @@
 
 // The share of each texel kept from earlier frames, which smooths how light settles as each update adds a bounce, and how it follows changes. A new
 // probe averages its first updates evenly instead, so newly seen places light up within a few frames rather than seconds.
-static const float Hysteresis = 0.97;
+static const float Hysteresis = 0.94;
 // Sharper than the irradiance's cosine, so the moments resolve walls; 128 rays leave gaps a sharper lobe would show.
 static const float DistanceExponent = 30.0;
 

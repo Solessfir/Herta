@@ -1329,26 +1329,45 @@ namespace
 		return Environmental;
 	}
 
-	// The front faces see nothing but sky, so global illumination's irradiance must match the filtered environment's.
+	// The front faces see nothing but sky, so either method's irradiance must match the filtered environment's. Probes take a few frames to
+	// exist and, with cascades, for every level to have the one above.
 	const auto Environmental = MeasureLevels(false);
-	View.Visuals.bGlobalIllumination = true;
-	const auto Illuminated = MeasureLevels(false);
-
-	View.Visuals.bGlobalIllumination = false;
-	if (!Environmental || !Illuminated)
+	if (!Environmental)
 	{
-		return std::unexpected(!Environmental ? Environmental.error() : Illuminated.error());
+		return std::unexpected(Environmental.error());
 	}
 
-	std::println("Environment furnace, global illumination against raster: Lambert {:.1f}/{:.1f}, rough EON {:.1f}/{:.1f}, rough metal {:.1f}/{:.1f}", (*Illuminated)[0], (*Environmental)[0], (*Illuminated)[1], (*Environmental)[1], (*Illuminated)[2], (*Environmental)[2]);
-	for (std::size_t Index = 0; Index < Names.size(); ++Index)
+	constexpr std::array Methods{std::pair{EGlobalIlluminationMethod::IrradianceField, "the irradiance field"}, std::pair{EGlobalIlluminationMethod::RadianceCascades, "radiance cascades"}};
+	View.Visuals.bGlobalIllumination = true;
+	for (const auto& [Method, MethodName] : Methods)
 	{
-		if (std::abs((*Illuminated)[Index] - (*Environmental)[Index]) > 6.f)
+		View.Visuals.GlobalIlluminationMethod = Method;
+		for (int Frame = 0; Frame < 24; ++Frame)
 		{
-			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("Global illumination lit an open {} face to {:.1f}, not the environment's {:.1f}", Names[Index], (*Illuminated)[Index], (*Environmental)[Index])});
+			if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
+			{
+				return Rendered;
+			}
+		}
+
+		const auto Illuminated = MeasureLevels(false);
+		if (!Illuminated)
+		{
+			return std::unexpected(Illuminated.error());
+		}
+
+		std::println("Environment furnace, {} against raster: Lambert {:.1f}/{:.1f}, rough EON {:.1f}/{:.1f}, rough metal {:.1f}/{:.1f}", MethodName, (*Illuminated)[0], (*Environmental)[0], (*Illuminated)[1], (*Environmental)[1], (*Illuminated)[2], (*Environmental)[2]);
+		for (std::size_t Index = 0; Index < Names.size(); ++Index)
+		{
+			if (std::abs((*Illuminated)[Index] - (*Environmental)[Index]) > 6.f)
+			{
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("With {}, an open {} face was lit to {:.1f}, not the environment's {:.1f}", MethodName, Names[Index], (*Illuminated)[Index], (*Environmental)[Index])});
+			}
 		}
 	}
 
+	View.Visuals.bGlobalIllumination = false;
+	View.Visuals.GlobalIlluminationMethod = EGlobalIlluminationMethod::IrradianceField;
 	View.Visuals.bPathTracing = true;
 	if (const auto Traced = Measure("path traced environment"); !Traced)
 	{
@@ -1391,37 +1410,41 @@ namespace
 	View.Materials = FloorOverrides;
 	View.Lights = SunAndSky;
 	View.Visuals.bGlobalIllumination = true;
-	std::array<std::vector<std::byte>, 2> Frames;
-	constexpr std::size_t SettledFrame = 60;
-	for (std::size_t Frame = 0; Frame < SettledFrame + 2; ++Frame)
+	for (const auto& [Method, MethodName] : Methods)
 	{
-		if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
+		View.Visuals.GlobalIlluminationMethod = Method;
+		std::array<std::vector<std::byte>, 2> Frames;
+		constexpr std::size_t SettledFrame = 60;
+		for (std::size_t Frame = 0; Frame < SettledFrame + 2; ++Frame)
 		{
-			return Rendered;
-		}
-
-		if (Frame >= SettledFrame)
-		{
-			auto Image = Device.ReadbackTexture((*Renderer)->GetColorTarget());
-			if (!Image)
+			if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
 			{
-				return std::unexpected(Image.error());
+				return Rendered;
 			}
 
-			Frames[Frame - SettledFrame] = std::move(*Image);
+			if (Frame >= SettledFrame)
+			{
+				auto Image = Device.ReadbackTexture((*Renderer)->GetColorTarget());
+				if (!Image)
+				{
+					return std::unexpected(Image.error());
+				}
+
+				Frames[Frame - SettledFrame] = std::move(*Image);
+			}
 		}
-	}
 
-	int Flicker = 0;
-	for (std::size_t Byte = 0; Byte < Frames[0].size(); ++Byte)
-	{
-		Flicker = std::max(Flicker, std::abs(std::to_integer<int>(Frames[0][Byte]) - std::to_integer<int>(Frames[1][Byte])));
-	}
+		int Flicker = 0;
+		for (std::size_t Byte = 0; Byte < Frames[0].size(); ++Byte)
+		{
+			Flicker = std::max(Flicker, std::abs(std::to_integer<int>(Frames[0][Byte]) - std::to_integer<int>(Frames[1][Byte])));
+		}
 
-	std::println("Global illumination on a still sunlit view changed at most {} levels between frames", Flicker);
-	if (Flicker > 1)
-	{
-		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("Global illumination flickers on a still view by {} levels between frames", Flicker)});
+		std::println("With {}, a still sunlit view changed at most {} levels between frames", MethodName, Flicker);
+		if (Flicker > 1)
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("With {}, a still view flickers by {} levels between frames", MethodName, Flicker)});
+		}
 	}
 
 	return {};

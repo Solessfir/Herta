@@ -33,22 +33,40 @@ struct FIrradianceFieldShaders
 	FShaderAsset Reflect;
 };
 
-// The High tier's dynamic diffuse global illumination: a ray-traced irradiance field after DDGI (Majercik et al. 2019 and 2021). Probes on four clipmap
-// levels follow the camera; those its pixels read trace their own rays every frame and keep octahedral irradiance and distance moments, so lighting
-// is averaged in world space and moving the camera shows no noise. See IrradianceField.slangh.
-class FIrradianceField final
+// What the mesh renderer needs of a global illumination method, so it can hold either and switch between them.
+class IGlobalIllumination
 {
 public:
-	[[nodiscard]] static std::expected<std::unique_ptr<FIrradianceField>, FPresentationError> Create(IGraphicsDevice& Device, FIrradianceFieldShaders Shaders);
+	IGlobalIllumination() = default;
+	virtual ~IGlobalIllumination() = default;
+	IGlobalIllumination(const IGlobalIllumination&) = delete;
+	IGlobalIllumination& operator=(const IGlobalIllumination&) = delete;
+	IGlobalIllumination(IGlobalIllumination&&) = delete;
+	IGlobalIllumination& operator=(IGlobalIllumination&&) = delete;
+
 	// Records every pass inside the caller's recording, after the depth prepass and the scene's update.
-	[[nodiscard]] std::expected<void, FPresentationError> Render(const FGlobalIlluminationInputs& Inputs);
+	[[nodiscard]] virtual std::expected<void, FPresentationError> Render(const FGlobalIlluminationInputs& Inputs) = 0;
 	// Two half-resolution images side by side, each sampled at every 2x2 block's first pixel with that pixel's reversed depth in alpha, or 0 where
 	// it has nothing: diffuse irradiance on the left and glossy surfaces' scene reflections on the right, both at 1/16 scale. The mesh pass blends
 	// the four nearest samples on each pixel's surface plane.
-	const FTextureHandle& GetIrradiance() const noexcept;
-	std::size_t GetMemoryBytes() const noexcept;
-	FGlobalIlluminationStatistics GetStatistics() const noexcept;
-	void Release() noexcept;
+	virtual const FTextureHandle& GetIrradiance() const noexcept = 0;
+	virtual std::size_t GetMemoryBytes() const noexcept = 0;
+	virtual FGlobalIlluminationStatistics GetStatistics() const noexcept = 0;
+	virtual void Release() noexcept = 0;
+};
+
+// The High tier's dynamic diffuse global illumination: a ray-traced irradiance field after DDGI (Majercik et al. 2019 and 2021). Probes on four clipmap
+// levels follow the camera; those its pixels read trace their own rays every frame and keep octahedral irradiance and distance moments, so lighting
+// is averaged in world space and moving the camera shows no noise. See IrradianceField.slangh.
+class FIrradianceField final : public IGlobalIllumination
+{
+public:
+	[[nodiscard]] static std::expected<std::unique_ptr<FIrradianceField>, FPresentationError> Create(IGraphicsDevice& Device, FIrradianceFieldShaders Shaders);
+	[[nodiscard]] std::expected<void, FPresentationError> Render(const FGlobalIlluminationInputs& Inputs) override;
+	const FTextureHandle& GetIrradiance() const noexcept override;
+	std::size_t GetMemoryBytes() const noexcept override;
+	FGlobalIlluminationStatistics GetStatistics() const noexcept override;
+	void Release() noexcept override;
 
 private:
 	FIrradianceField(IGraphicsDevice& InDevice, std::array<FComputePipelineHandle, 5> InPipelines);

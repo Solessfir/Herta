@@ -1,0 +1,180 @@
+#pragma once
+#include "IrradianceField.slangh"
+
+// World-space Radiance Cascades (Sannikov 2023) over the irradiance field's probes. The field's four clipmap levels double as the cascades:
+// a level's probes sit twice as far apart as the level below and keep four times its directions, so each keeps the light from one shell of
+// distances at the angular resolution that distance needs. A probe traces only its own shell, and where a ray leaves the shell unoccluded it
+// takes the light from the next level's probes around it. Every ray has a fixed direction, so nothing is random and a still scene never changes.
+//
+// Level 0 keeps no radiance: its probes trace 64 near rays and read level 1. Levels 1 to 3 keep an octahedral radiance tile of 16, 32, and 64
+// texels a side for their shell, premultiplied by a coverage of 1 where the texel is known, and trace the same 64 near rays to stand in for the
+// field's probes where the camera or other rays read them directly. Near rays, merged with the cascades, blend into the irradiance and distance
+// tiles the field's readers sample, so gathering and reflections are the field's own.
+//
+// Keep the constants in sync with RadianceCascades.cpp.
+
+// Each level's probes come from its own share of the pool, because their radiance tiles differ in size.
+static const uint CascadeLevelBase[FieldLevels] = { 0, 49152, 61440, 64512 };
+static const uint CascadeLevelCount[FieldLevels] = { 49152, 12288, 3072, 1024 };
+// Probes that trace near rays in a frame, and probes of levels 1 to 3 that trace their shell, listed one after another in one buffer.
+static const uint CascadeListBase[FieldLevels] = { 0, 8192, 10240, 10752 };
+static const uint CascadeListCount[FieldLevels] = { 8192, 2048, 512, 128 };
+static const uint CascadeNearTexels = 8;
+static const uint CascadeNearRays = CascadeNearTexels * CascadeNearTexels;
+// Near rays without light yet, where the cascade above has nothing for them, carry this distance.
+static const float CascadeNoData = -1e30;
+// The use buffer's third and fourth words per probe: the frame a probe below last merged with it, and the frame its shell was last traced, 0
+// for never and 1 while texels still lack the level above.
+static const uint CascadeParentUse = FieldProbeCount * 2;
+static const uint CascadeRadianceFrame = FieldProbeCount * 3;
+static const uint CascadeIncomplete = 1;
+
+uint CascadeTexels(uint Level)
+{
+    return CascadeNearTexels << Level;
+}
+
+uint2 CascadeTileOrigin(uint Level, uint Probe)
+{
+    uint Local = Probe - CascadeLevelBase[Level];
+    uint PerRow = FieldTilesPerRow >> Level;
+    return uint2(Local % PerRow, Local / PerRow) * (CascadeTexels(Level) + 2);
+}
+
+// A level's shell starts at its own spacing and ends where the next level's starts, so shells meet without gaps: 2 to 4 m, 4 to 8 m, and from
+// 8 m on.
+float CascadeShellStart(uint Level)
+{
+    return FieldSpacing(Level);
+}
+
+float CascadeShellEnd(uint Level)
+{
+    return Level + 1 == FieldLevels ? 1e30 : FieldSpacing(Level + 1);
+}
+
+// How far along a ray, in shell starts, the probes that continue it aim; see CascadeMerge.
+static const float CascadeAimDistance = 1.5;
+
+// Near rays reach twice the probe's spacing: as far as the surfaces it lights, so the distance moments see every wall between them, and for
+// level 0 as far as level 1's shells begin.
+float CascadeNearRange(uint Level)
+{
+    return 2.0 * FieldSpacing(Level);
+}
+
+// The solid angle of an octahedral texel in this direction, up to a constant. The octahedron's faces are nearest the centre in their middle,
+// where a texel covers the most of the sphere, and a unit direction's components sum to the inverse of that distance.
+float CascadeSolidAngle(float3 Direction)
+{
+    float Sum = abs(Direction.x) + abs(Direction.y) + abs(Direction.z);
+    return Sum * Sum * Sum;
+}
+
+#ifdef CASCADE_PARENT_BINDING
+float3 CascadeProbePosition(uint Level, int3 Cell, uint Probe)
+{
+    return float3(Cell) * FieldSpacing(Level) + FieldProbes[Probe].xyz;
+}
+
+[[vk::binding(CASCADE_PARENT_BINDING, 0)]] Texture2D<float4> CascadeParentAtlas;
+
+// The eight probes of a level around a position, and the trilinear weight of each.
+struct FCascadeParents
+{
+    int3 Base;
+    float3 Alpha;
+};
+
+FCascadeParents CascadeParentsAt(uint Level, float3 Position)
+{
+    float3 Grid = Position / FieldSpacing(Level);
+    FCascadeParents Parents;
+    Parents.Base = int3(floor(Grid));
+    Parents.Alpha = Grid - float3(Parents.Base);
+    return Parents;
+}
+
+int3 CascadeCorner(uint Corner)
+{
+    return int3(Corner & 1u, (Corner >> 1) & 1u, Corner >> 2);
+}
+
+// Marks the probes a probe merges with as in use, and asks for the ones that do not exist yet.
+void CascadeTouchParents(uint Level, float3 Position)
+{
+    FCascadeParents Parents = CascadeParentsAt(Level, Position);
+    for (uint Corner = 0; Corner < 8; ++Corner)
+    {
+        int3 Cell = Parents.Base + CascadeCorner(Corner);
+        if (!FieldInGrid(Level, Cell))
+            continue;
+
+        uint Slot = FieldSlot(Level, Cell);
+        uint Index = FieldCells[Slot];
+        if (Index == FieldEmpty)
+            FieldRequest(Level, Cell, Slot);
+        else if (Index < FieldRequested)
+            FieldUsed[CascadeParentUse + Index] = FieldFrame();
+    }
+}
+
+// The light past a ray that left its own range unoccluded: what a level's probes around Position keep for Direction, trilinearly weighted.
+// The ray ended End along Direction, and a probe's shell begins the same distance along it from where that probe stands, so a probe only
+// counts if the segment between the two is open: its shell would otherwise continue the ray from behind a wall the ray never crossed, and
+// bring that side's light through. Coverage in alpha is 0 where the probes have nothing yet, and the light is black where every probe that
+// could have had it is cut off.
+float4 CascadeMerge(uint Level, float3 Position, float3 Direction, float End)
+{
+    FCascadeParents Parents = CascadeParentsAt(Level, Position);
+    uint Width, Height;
+    CascadeParentAtlas.GetDimensions(Width, Height);
+    // Each probe looks towards the point the ray would reach in the middle of its shell rather than along the ray's own direction: seen from
+    // a probe to the side, what the ray meets there lies in a different direction, and reading the same direction would shift it sideways
+    // by the distance between the two.
+    float3 Aim = Position + Direction * (CascadeAimDistance * CascadeShellStart(Level));
+    float3 RayEnd = Position + Direction * End;
+    float4 Sum = 0.0;
+    bool bKnown = false;
+    for (uint Corner = 0; Corner < 8; ++Corner)
+    {
+        float3 Trilinear = lerp(1.0 - Parents.Alpha, Parents.Alpha, float3(CascadeCorner(Corner)));
+        float Weight = Trilinear.x * Trilinear.y * Trilinear.z;
+        if (Weight < 1e-3)
+            continue;
+
+        int3 Cell = Parents.Base + CascadeCorner(Corner);
+        if (!FieldInGrid(Level, Cell))
+            continue;
+
+        uint Index = FieldCells[FieldSlot(Level, Cell)];
+        if (Index >= FieldRequested)
+            continue;
+
+        uint Traced = FieldUsed[CascadeRadianceFrame + Index];
+        if (Traced == 0u || FieldProbes[Index].w == FieldProbeInside)
+            continue;
+
+        float3 Parent = CascadeProbePosition(Level, Cell, Index);
+        float3 Towards = normalize(Aim - Parent);
+        float3 Bridge = Parent + Towards * CascadeShellStart(Level) - RayEnd;
+        float Length = length(Bridge);
+        if (Length > 1e-3 && Occluded(RayEnd, Bridge / Length, Length))
+        {
+            bKnown = true;
+            continue;
+        }
+
+        float2 Texel = 1.0 + FieldOctahedralEncode(Towards) * float(CascadeTexels(Level));
+        float2 UV = (float2(CascadeTileOrigin(Level, Index)) + Texel) / float2(Width, Height);
+        Sum += CascadeParentAtlas.SampleLevel(LinearSampler, UV, 0) * Weight;
+        // A shell still waiting for the level above says nothing about the texels it lacks.
+        bKnown = bKnown || Traced != CascadeIncomplete;
+    }
+
+    if (Sum.a > 1e-4)
+        return float4(Sum.rgb / Sum.a, 1.0);
+
+    return bKnown ? float4(0.0, 0.0, 0.0, 1.0) : 0.0;
+}
+#endif

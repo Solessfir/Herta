@@ -6,6 +6,7 @@
 #include "IrradianceField.h"
 #include "MaterialUniform.h"
 #include "PathTracer.h"
+#include "RadianceCascades.h"
 
 #include <AreaTex.h>
 // The vendored header converts int to float implicitly; it stays unmodified.
@@ -964,7 +965,9 @@ struct FMeshRenderer::FImplementation
 	// Null without ray queries or its shader. The scene they trace is shared, and released while nothing traces.
 	std::unique_ptr<FRayTracingScene> RayTracingScene;
 	std::unique_ptr<FPathTracer> PathTracer;
-	std::unique_ptr<FIrradianceField> IrradianceField;
+	// Indexed by EGlobalIlluminationMethod; only the one in use holds memory.
+	std::array<std::unique_ptr<IGlobalIllumination>, 2> GlobalIllumination;
+	IGlobalIllumination* ActiveGlobalIllumination = nullptr;
 	FTextureHandle SunShadows;
 	std::size_t DepthBoundsFrame = 0;
 	float VisibleNear = 0.f;
@@ -1225,16 +1228,27 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 			State->InstancedVelocitySurfacePrepassPipeline = std::move(*VelocitySurfacePrepass);
 		}
 
+		if (!VisualShaders.RadianceCascadesUpdateCompute.Bytecode.empty())
+		{
+			auto Cascades = FRadianceCascades::Create(Device, {.Update = std::move(VisualShaders.RadianceCascadesUpdateCompute), .Trace = std::move(VisualShaders.RadianceCascadesTraceCompute), .Near = std::move(VisualShaders.RadianceCascadesNearCompute), .Blend = std::move(VisualShaders.RadianceCascadesBlendCompute), .Gather = VisualShaders.IrradianceFieldGatherCompute, .Reflect = VisualShaders.IrradianceFieldReflectCompute});
+			if (!Cascades)
+			{
+				return std::unexpected(Cascades.error());
+			}
+
+			State->GlobalIllumination[static_cast<std::size_t>(EGlobalIlluminationMethod::RadianceCascades)] = std::move(*Cascades);
+		}
+
 		auto Field = FIrradianceField::Create(Device, {.Update = std::move(VisualShaders.IrradianceFieldUpdateCompute), .Trace = std::move(VisualShaders.IrradianceFieldTraceCompute), .Blend = std::move(VisualShaders.IrradianceFieldBlendCompute), .Gather = std::move(VisualShaders.IrradianceFieldGatherCompute), .Reflect = std::move(VisualShaders.IrradianceFieldReflectCompute)});
 		if (!Field)
 		{
 			return std::unexpected(Field.error());
 		}
 
-		State->IrradianceField = std::move(*Field);
+		State->GlobalIllumination[static_cast<std::size_t>(EGlobalIlluminationMethod::IrradianceField)] = std::move(*Field);
 	}
 
-	if (State->PathTracer || State->IrradianceField)
+	if (State->PathTracer || State->GlobalIllumination[0])
 	{
 		State->RayTracingScene = std::make_unique<FRayTracingScene>(Device);
 	}
@@ -1694,7 +1708,7 @@ std::uint32_t FMeshRenderer::GetPathTracingSamples() const noexcept
 
 FGlobalIlluminationStatistics FMeshRenderer::GetGlobalIlluminationStatistics() const noexcept
 {
-	return Implementation->IrradianceField ? Implementation->IrradianceField->GetStatistics() : FGlobalIlluminationStatistics{};
+	return Implementation->ActiveGlobalIllumination ? Implementation->ActiveGlobalIllumination->GetStatistics() : FGlobalIlluminationStatistics{};
 }
 
 void FMeshRenderer::ResetExposureAdaptation() noexcept
@@ -2026,15 +2040,21 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	// The path tracer replaces shading, shadow maps, screen-space effects, and fog.
 	const bool bPathTracing = View.Visuals.bPathTracing && State.PathTracer && State.VisualPipelines[0];
 	// Global illumination needs the depth prepass, which the path tracer keeps for overlays, and gives way to the path tracer.
-	const bool bGlobalIllumination = View.Visuals.bGlobalIllumination && State.IrradianceField && State.VisualPipelines[0] && !bPathTracing;
+	// A method whose shaders were not supplied gives way to the irradiance field.
+	const std::size_t Method = State.GlobalIllumination[static_cast<std::size_t>(View.Visuals.GlobalIlluminationMethod)] ? static_cast<std::size_t>(View.Visuals.GlobalIlluminationMethod) : 0;
+	const bool bGlobalIllumination = View.Visuals.bGlobalIllumination && State.GlobalIllumination[Method] && State.VisualPipelines[0] && !bPathTracing;
+	State.ActiveGlobalIllumination = bGlobalIllumination ? State.GlobalIllumination[Method].get() : nullptr;
 	if (State.PathTracer && !bPathTracing)
 	{
 		State.PathTracer->Release();
 	}
 
-	if (State.IrradianceField && !bGlobalIllumination)
+	for (const std::unique_ptr<IGlobalIllumination>& Other : State.GlobalIllumination)
 	{
-		State.IrradianceField->Release();
+		if (Other && Other.get() != State.ActiveGlobalIllumination)
+		{
+			Other->Release();
+		}
 	}
 
 	if (State.RayTracingScene && !bPathTracing && !bGlobalIllumination)
@@ -3243,7 +3263,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 					if (bGlobalIllumination && !bDepthPrepass)
 					{
-						Textures[15] = State.IrradianceField->GetIrradiance();
+						Textures[15] = State.ActiveGlobalIllumination->GetIrradiance();
 					}
 
 					const auto Deforming = State.DeformingMeshes.find(&Mesh);
@@ -3299,7 +3319,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 				if (bGlobalIllumination && !bDepthPrepass)
 				{
-					Textures[15] = State.IrradianceField->GetIrradiance();
+					Textures[15] = State.ActiveGlobalIllumination->GetIrradiance();
 				}
 
 				const bool bSurface = bDepthPrepass && bGlobalIllumination;
@@ -3520,7 +3540,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				return GraphResult(Updated);
 			}
 
-			return GraphResult(State.IrradianceField->Render({.Extent = Extent, .Uniforms = &State.Uniforms, .Scene = State.RayTracingScene.get(), .Depth = FrameDepth, .Surface = State.Surface, .Environment = State.EnvironmentSpecular, .SkyView = State.SkyView, .SpecularAlbedo = State.SpecularAlbedo, .Lights = State.Lights}));
+			return GraphResult(State.ActiveGlobalIllumination->Render({.Extent = Extent, .Uniforms = &State.Uniforms, .Scene = State.RayTracingScene.get(), .Depth = FrameDepth, .Surface = State.Surface, .Environment = State.EnvironmentSpecular, .SkyView = State.SkyView, .SpecularAlbedo = State.SpecularAlbedo, .Lights = State.Lights}));
 		});
 	}
 
@@ -3700,7 +3720,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 				if (bGlobalIllumination)
 				{
-					Textures[15] = State.IrradianceField->GetIrradiance();
+					Textures[15] = State.ActiveGlobalIllumination->GetIrradiance();
 				}
 
 				const auto Transform = (WorldToClip * View.Models[Translucent.Model]).Data();

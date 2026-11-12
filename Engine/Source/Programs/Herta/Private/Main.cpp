@@ -280,7 +280,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing, const std::string_view ExposureArgument, const bool bShimmer, const bool bWalk, const std::string_view HoldBookmarkArgument, const std::string_view AutomationArgument, const bool bSafeMode)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing, const std::string_view ExposureArgument, const bool bShimmer, const bool bWalk, const std::string_view HoldBookmarkArgument, const std::string_view AutomationArgument, const bool bSafeMode, const std::string_view GlobalIlluminationArgument)
 {
 	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
@@ -461,6 +461,10 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    std::pair{"IrradianceFieldBlend.comp.hshader", &VisualShaders.IrradianceFieldBlendCompute},
 	    std::pair{"IrradianceFieldGather.comp.hshader", &VisualShaders.IrradianceFieldGatherCompute},
 	    std::pair{"IrradianceFieldReflect.comp.hshader", &VisualShaders.IrradianceFieldReflectCompute},
+	    std::pair{"RadianceCascadesUpdate.comp.hshader", &VisualShaders.RadianceCascadesUpdateCompute},
+	    std::pair{"RadianceCascadesTrace.comp.hshader", &VisualShaders.RadianceCascadesTraceCompute},
+	    std::pair{"RadianceCascadesNear.comp.hshader", &VisualShaders.RadianceCascadesNearCompute},
+	    std::pair{"RadianceCascadesBlend.comp.hshader", &VisualShaders.RadianceCascadesBlendCompute},
 	    std::pair{"PathTrace.comp.hshader", &VisualShaders.PathTraceCompute},
 	};
 
@@ -978,6 +982,17 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		}
 
 		EditorFramework->SetRenderQuality(static_cast<ERenderQuality>(Tier - Tiers.begin()));
+	}
+
+	if (!GlobalIlluminationArgument.empty())
+	{
+		if (GlobalIlluminationArgument != "field" && GlobalIlluminationArgument != "cascades")
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Unknown --gi={}; expected field or cascades", GlobalIlluminationArgument);
+			return 1;
+		}
+
+		EditorFramework->SetGlobalIlluminationMethod(GlobalIlluminationArgument == "cascades" ? EGlobalIlluminationMethod::RadianceCascades : EGlobalIlluminationMethod::IrradianceField);
 	}
 
 	if (bPathTracing)
@@ -2200,7 +2215,7 @@ int main(const int ArgumentCount, char** const Arguments)
 			}
 		}
 
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing, Exposure, bShimmer, bWalk, HoldBookmark, Automation, Herta::HasArgument(ArgumentCount, Arguments, "--safe-mode"));
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing, Exposure, bShimmer, bWalk, HoldBookmark, Automation, Herta::HasArgument(ArgumentCount, Arguments, "--safe-mode"), Herta::FindArgumentValue(ArgumentCount, Arguments, "--gi="));
 	}
 	catch (const std::exception& Exception)
 	{

@@ -425,6 +425,11 @@ void FEditorFramework::SetPathTracing(const bool bEnabled) noexcept
 	Implementation->VisualSettings.bPathTracing = bEnabled;
 }
 
+void FEditorFramework::SetGlobalIlluminationMethod(const EGlobalIlluminationMethod Method) noexcept
+{
+	Implementation->VisualSettings.GlobalIlluminationMethod = Method;
+}
+
 void FEditorFramework::SetManualExposure(const float ExposureValue) noexcept
 {
 	// EV100 = log2(N^2 / t) at ISO 100.

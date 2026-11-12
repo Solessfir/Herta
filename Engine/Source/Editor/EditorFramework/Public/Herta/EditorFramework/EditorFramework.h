@@ -129,6 +129,7 @@ public:
 	void SetPlayPaused(bool bPaused) noexcept;
 	void SetRenderQuality(ERenderQuality Quality) noexcept;
 	void SetPathTracing(bool bEnabled) noexcept;
+	void SetGlobalIlluminationMethod(EGlobalIlluminationMethod Method) noexcept;
 	// Replaces auto exposure with a fixed EV100, set through the physical camera's shutter, so captures compare without metering differences.
 	void SetManualExposure(float ExposureValue) noexcept;
 	// Moves the viewport camera along its view direction, as flying forward does.
