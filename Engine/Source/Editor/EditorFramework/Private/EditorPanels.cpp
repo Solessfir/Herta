@@ -2,57 +2,6 @@
 
 namespace Herta
 {
-void FEditorFramework::FImplementation::DrawHdrDisplaySettings(FEditorDisplay& Display, const float ValueWidth)
-{
-	ImGui::Separator();
-	DrawFieldLabel("HDR output", ValueWidth);
-	ImGui::BeginDisabled(!DisplayState.bHdrSupported && !Display.bHdrOutput);
-	ToolUIToggle("##HdrOutput", &Display.bHdrOutput);
-	ImGui::EndDisabled();
-
-	if (!DisplayState.bHdrSupported)
-	{
-		ImGui::PushTextWrapPos(0.f);
-		ImGui::TextDisabled("%s", Display.bHdrOutput ? "Waiting for a display that offers HDR10. On Windows, turn on Use HDR in display settings." : "This display does not offer HDR10. On Windows, turn on Use HDR in display settings.");
-		ImGui::PopTextWrapPos();
-	}
-
-	if (!Display.bHdrOutput || !DisplayState.bHdrActive)
-	{
-		bHdrCalibration = false;
-		return;
-	}
-
-	float Peak = DisplayState.PeakLuminance;
-	DrawFieldLabel("Peak brightness", ValueWidth);
-	if (DrawNumericSliderFloat("##HdrPeak", &Peak, MinimumHdrPeakLuminance, MaximumHdrPeakLuminance, Display.PeakLuminance > 0.f ? "%.0f nits" : "%.0f nits (system)", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
-	{
-		Display.PeakLuminance = Peak;
-	}
-
-	float PaperWhite = DisplayState.PaperWhite;
-	DrawFieldLabel("Paper white", ValueWidth);
-	if (DrawNumericSliderFloat("##HdrPaperWhite", &PaperWhite, MinimumHdrPaperWhite, MaximumHdrPaperWhite, Display.PaperWhite > 0.f ? "%.0f nits" : "%.0f nits (system)", ImGuiSliderFlags_AlwaysClamp))
-	{
-		Display.PaperWhite = PaperWhite;
-	}
-
-	ImGui::SetItemTooltip("Brightness of white in the editor and of a white surface in the scene");
-	DrawFieldLabel("Calibrate peak", ValueWidth);
-	ToolUIToggle("##HdrCalibration", &bHdrCalibration);
-	ImGui::SetItemTooltip("Shows a test pattern in the viewport. Raise Peak brightness until the inner square disappears into the outer one.");
-
-	ImGui::BeginDisabled(Display.PaperWhite == 0.f && Display.PeakLuminance == 0.f);
-	if (ImGui::Button("Use system values", {-1.f, 0.f}))
-	{
-		Display.PaperWhite = 0.f;
-		Display.PeakLuminance = 0.f;
-	}
-
-	ImGui::EndDisabled();
-	ImGui::SetItemTooltip(DisplayState.SystemPeakLuminance > 0.f ? "Follow the brightness the operating system reports for this display" : "The operating system reports no brightness here, so defaults of 200 and 1000 nits apply");
-}
-
 // The atmosphere's linked sun wins; otherwise the first enabled directional light drives time of day.
 int FEditorFramework::FImplementation::FindTimeOfDaySun() const
 {

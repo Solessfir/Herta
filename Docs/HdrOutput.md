@@ -18,7 +18,7 @@ Thumbnails and other SDR images are shown at paper white. scRGB (`R16G16B16A16_S
 
 ## Settings
 
-The **Appearance** popup in the editor's bottom bar holds per-user display settings, saved with the rest of the appearance in `Saved/Editor/Appearance.ini` (format version 4; older files load with HDR off). **Reset** keeps them, because they describe the monitor rather than the look.
+The Display section of **Edit > Preferences** holds per-user display settings, saved with the rest of the appearance in `Saved/Editor/Appearance.ini` (format version 4; older files load with HDR off). **Reset** keeps them, because they describe the monitor rather than the look.
 
 - **HDR output** is off by default and only offered while the main window's display reports HDR10.
 - **Peak brightness** (250 to 10,000 nits) and **Paper white** (80 to 500 nits) follow the operating system until changed, shown as "(system)". On Windows, the peak comes from `DXGI_OUTPUT_DESC1::MaxLuminance` for the monitor under the window, and paper white from the "SDR content brightness" setting (`DISPLAYCONFIG_SDR_WHITE_LEVEL`). Elsewhere, or when nothing is reported, they default to 1000 and 200 nits. The peak never drops below paper white. **Use system values** returns to following the system.

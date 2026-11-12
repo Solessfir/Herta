@@ -10,7 +10,7 @@ Editor plugins add panels, Tools menu items, and console commands. A plugin is a
   "formatVersion": 1,
   "name": "Git",
   "friendlyName": "Git source control",
-  "description": "Shown in Window > Plugins.",
+  "description": "Shown in Tools > Plugins.",
   "module": "HertaGit",
   "dependencies": [],
   "enabledByDefault": true
@@ -23,7 +23,7 @@ Premake creates one project per plugin with a `Source` folder when generating, s
 
 ## Loading, enabling, and safe mode
 
-The editor discovers plugins at startup, resolves dependencies, and loads the enabled ones, dependencies first. A plugin whose dependency is missing, disabled, or part of a cycle stays unloaded, and Window > Plugins shows the reason beside it. Toggling a plugin there writes the choice to the per-user `Herta/Editor/Plugins.txt` in the user settings folder and takes effect at the next start; the panel says when a restart is pending. Plugins never unload while the editor runs, since what they registered is destroyed as late as the editor's last shutdown step.
+The editor discovers plugins at startup, resolves dependencies, and loads the enabled ones, dependencies first. A plugin whose dependency is missing, disabled, or part of a cycle stays unloaded, and Tools > Plugins, which opens as a tab beside the level, shows the reason beside it. Toggling a plugin there writes the choice to the per-user `Herta/Editor/Plugins.txt` in the user settings folder and takes effect at the next start; the panel says when a restart is pending. Plugins never unload while the editor runs, since what they registered is destroyed as late as the editor's last shutdown step.
 
 Like game modules, a plugin links no engine library and must come from the same engine revision, configuration, and `EditorPluginInterfaceVersion`; the editor refuses others with a message to rebuild them. Plugins draw through `IEditorPluginUI`, whose calls run the editor's own widgets, so they never link ImGui or share its state. `IEditorPluginHost::RunProcess` runs programs on the editor's blocking-IO tasks and delivers the result on the main thread between frames.
 

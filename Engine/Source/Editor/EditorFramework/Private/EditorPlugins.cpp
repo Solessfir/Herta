@@ -6,11 +6,13 @@
 #include "Herta/Platform/Process.h"
 #include "Herta/Tasks/TaskSystem.h"
 #include "Herta/ToolUI/ToolUI.h"
+#include "SettingsPage.h"
 
 #include <imgui.h>
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <format>
 #include <fstream>
@@ -368,24 +370,60 @@ bool FEditorPlugins::HasToolsMenuItems() const noexcept
 	return !MenuItems.empty();
 }
 
-void FEditorPlugins::DrawManager(FToolUIContext& ToolUI, bool& bOpen)
+void FEditorPlugins::DrawManager(FToolUIContext& ToolUI, bool& bOpen, const bool bFocus, const std::string_view TabTitle)
 {
 	if (!bOpen)
 	{
 		return;
 	}
 
-	ImGui::SetNextWindowSize({560.f * ImGui::GetFontSize() / ToolUI.GetMetrics().BaseFontSize, 420.f * ImGui::GetFontSize() / ToolUI.GetMetrics().BaseFontSize}, ImGuiCond_FirstUseEver);
-	if (!ToolUI.BeginPanel("Plugins", &bOpen))
+	if (bFocus)
 	{
-		ToolUI.EndPanel();
+		ImGui::SetNextWindowFocus();
+	}
+
+	const auto Count = [this](const auto& Matches)
+	{
+		return std::to_string(std::ranges::count_if(Catalog.Plugins, Matches));
+	};
+
+	const auto IsEnabled = [this](const FPluginDescriptor& Plugin)
+	{
+		return IsPluginEnabled(Plugin, Overrides);
+	};
+
+	const std::array<FSettingsSection, 4> Sections{{
+	    {.Label = "All", .Heading = "Show", .Detail = std::to_string(Catalog.Plugins.size())},
+	    {.Label = "Enabled", .Detail = Count(IsEnabled)},
+	    {.Label = "Engine", .Heading = "Source", .Detail = Count([](const FPluginDescriptor& Plugin)
+	{
+		return Plugin.Source == EPluginSource::Engine;
+	})},
+	    {.Label = "Project", .Detail = Count([](const FPluginDescriptor& Plugin)
+	{
+		return Plugin.Source != EPluginSource::Engine;
+	})},
+	}};
+
+	if (!BeginSettingsPage(ToolUI, std::format("{}###Plugins", TabTitle), EToolUIMenuIcon::Panel, bOpen, Sections, ManagerSection))
+	{
 		return;
 	}
 
 	const float Scale = ImGui::GetFontSize() / ToolUI.GetMetrics().BaseFontSize;
+	DrawSettingsTitle(TabTitle);
+	const float SearchWidth = std::min(260.f * Scale, ImGui::GetContentRegionAvail().x * 0.5f);
+	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - SearchWidth);
+	ImGui::SetNextItemWidth(SearchWidth);
+	ToolUI.DrawSearchField("##PluginSearch", "Search plugins", ManagerSearch.data(), ManagerSearch.size());
+	const std::string_view Query(ManagerSearch.data());
+	ImGui::Dummy({0.f, 6.f * Scale});
+
+	const ImVec4 Warning{0.91f, 0.69f, 0.29f, 1.f};
+	const ImVec4 Failure{0.95f, 0.55f, 0.45f, 1.f};
 	if (bSafeMode)
 	{
-		ImGui::TextColored({0.95f, 0.75f, 0.35f, 1.f}, "Safe mode: plugins are not loaded this run.");
+		ImGui::TextColored(Warning, "Safe mode: plugins are not loaded this run.");
 	}
 
 	const bool bRestart = std::ranges::any_of(Catalog.Plugins, [this](const FPluginDescriptor& Plugin)
@@ -395,20 +433,39 @@ void FEditorPlugins::DrawManager(FToolUIContext& ToolUI, bool& bOpen)
 
 	if (bRestart)
 	{
-		ImGui::TextColored({0.95f, 0.75f, 0.35f, 1.f}, "Restart the editor to apply plugin changes.");
+		ImGui::TextColored(Warning, "Restart the editor to apply plugin changes.");
 	}
 
-	if (Catalog.Plugins.empty())
+	const auto Contains = [](const std::string_view Text, const std::string_view Part)
 	{
-		ImGui::TextDisabled("No plugins in Engine/Plugins or the project's Plugins folder.");
-	}
+		return std::ranges::search(Text, Part, [](const char Left, const char Right)
+		{
+			return std::tolower(static_cast<unsigned char>(Left)) == std::tolower(static_cast<unsigned char>(Right));
+		}).begin() != Text.end()
+		       || Part.empty();
+	};
 
+	bool bAnyShown = false;
 	for (const FPluginDescriptor& Plugin : Catalog.Plugins)
 	{
-		ImGui::PushID(Plugin.Name.c_str());
 		bool bEnabled = IsPluginEnabled(Plugin, Overrides);
-		// The toggle right-aligns within the item width, so a width of just its track keeps it at the left of the row.
-		ImGui::SetNextItemWidth(std::round(ImGui::GetFontSize() * 0.9f * 1.8f));
+		const bool bEngine = Plugin.Source == EPluginSource::Engine;
+		const bool bInSection = ManagerSection == 0 || (ManagerSection == 1 && bEnabled) || (ManagerSection == 2 && bEngine) || (ManagerSection == 3 && !bEngine);
+		if (!bInSection || !(Contains(Plugin.FriendlyName, Query) || Contains(Plugin.Description, Query)))
+		{
+			continue;
+		}
+
+		bAnyShown = true;
+		ImGui::PushID(Plugin.Name.c_str());
+		const bool bLoaded = std::ranges::contains(Loaded, Plugin.Name);
+		std::string Hint = std::format("{}{}", bEngine ? "Engine" : "Project", bLoaded ? ", loaded" : "");
+		if (!Plugin.Description.empty())
+		{
+			Hint += "  -  " + Plugin.Description;
+		}
+
+		BeginSettingsRow(Plugin.FriendlyName, Hint, 60.f);
 		if (ToolUIToggle("##Enabled", &bEnabled))
 		{
 			// Choosing the default again drops the override, so a later default change reaches this user too.
@@ -427,19 +484,6 @@ void FEditorPlugins::DrawManager(FToolUIContext& ToolUI, bool& bOpen)
 			}
 		}
 
-		ImGui::SameLine(0.f, 10.f * Scale);
-		ImGui::BeginGroup();
-		ImGui::TextUnformatted(Plugin.FriendlyName.c_str());
-		ImGui::SameLine();
-		const bool bLoaded = std::ranges::contains(Loaded, Plugin.Name);
-		ImGui::TextDisabled("%s%s", Plugin.Source == EPluginSource::Engine ? "Engine" : "Project", bLoaded ? ", loaded" : "");
-		if (!Plugin.Description.empty())
-		{
-			ImGui::PushTextWrapPos(0.f);
-			ImGui::TextDisabled("%s", Plugin.Description.c_str());
-			ImGui::PopTextWrapPos();
-		}
-
 		if (!Plugin.Dependencies.empty())
 		{
 			std::string Names;
@@ -456,14 +500,17 @@ void FEditorPlugins::DrawManager(FToolUIContext& ToolUI, bool& bOpen)
 			if (Diagnostic.Plugin == Plugin.Name)
 			{
 				ImGui::PushTextWrapPos(0.f);
-				ImGui::TextColored({0.95f, 0.55f, 0.45f, 1.f}, "%s", Diagnostic.Message.c_str());
+				ImGui::TextColored(Failure, "%s", Diagnostic.Message.c_str());
 				ImGui::PopTextWrapPos();
 			}
 		}
 
-		ImGui::EndGroup();
-		ImGui::Spacing();
 		ImGui::PopID();
+	}
+
+	if (!bAnyShown)
+	{
+		ImGui::TextDisabled("%s", Catalog.Plugins.empty() ? "No plugins in Engine/Plugins or the project's Plugins folder." : "No plugins match.");
 	}
 
 	for (const FPluginDiagnostic& Diagnostic : Diagnostics)
@@ -471,12 +518,12 @@ void FEditorPlugins::DrawManager(FToolUIContext& ToolUI, bool& bOpen)
 		if (!std::ranges::contains(Catalog.Plugins, Diagnostic.Plugin, &FPluginDescriptor::Name))
 		{
 			ImGui::PushTextWrapPos(0.f);
-			ImGui::TextColored({0.95f, 0.55f, 0.45f, 1.f}, "%s", Diagnostic.Message.c_str());
+			ImGui::TextColored(Failure, "%s", Diagnostic.Message.c_str());
 			ImGui::PopTextWrapPos();
 		}
 	}
 
-	ToolUI.EndPanel();
+	EndSettingsPage(ToolUI);
 }
 
 bool FEditorPlugins::IsSafeMode() const noexcept

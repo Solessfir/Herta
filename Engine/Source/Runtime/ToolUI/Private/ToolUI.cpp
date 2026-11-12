@@ -413,6 +413,8 @@ struct FToolUIDocument
 	ImGuiID Id = 0;
 	std::string Label;
 	int LastFrame = 0;
+	// Shown before the label; asset editors that set none show the label alone.
+	std::optional<EToolUIMenuIcon> Icon{};
 };
 
 struct FToolUIContext::FImplementation
@@ -439,6 +441,7 @@ struct FToolUIContext::FImplementation
 	ImGuiID ActiveDocument = 0;
 	ImGuiID CloseRequestedDocument = 0;
 	ImGuiID FocusRequestedDocument = 0;
+	std::optional<EToolUIMenuIcon> NextDocumentIcon{};
 	std::string LevelTabLabel = "Level";
 	// Whether each open BeginPanel began an ImGui window, so EndPanel ends only those.
 	std::vector<bool> PanelBegun;
@@ -992,10 +995,11 @@ void DrawDocumentTabs(FToolUIContext::FImplementation& Owner, ImDrawList& DrawLi
 	const float CloseSize = 16.f * Scale;
 	const float Rounding = Owner.Metrics.TitleBarControlRounding * Scale;
 	float X = Left + 6.f * Scale;
-	const auto DrawTab = [&](const ImGuiID Id, const std::string& Label, const bool bClosable)
+	const auto DrawTab = [&](const ImGuiID Id, const std::string& Label, const bool bClosable, const std::optional<EToolUIMenuIcon> Icon)
 	{
 		const ImVec2 TextSize = ImGui::CalcTextSize(Label.c_str());
-		const float Width = Padding * 2.f + TextSize.x + (bClosable ? CloseSize + 4.f * Scale : 0.f);
+		const float IconWidth = Icon ? 20.f * Scale : 0.f;
+		const float Width = Padding * 2.f + IconWidth + TextSize.x + (bClosable ? CloseSize + 4.f * Scale : 0.f);
 		const ImVec2 Minimum{X, Y};
 		const ImVec2 Maximum{X + Width, Y + Height};
 		ImGui::SetCursorScreenPos(Minimum);
@@ -1024,7 +1028,12 @@ void DrawDocumentTabs(FToolUIContext::FImplementation& Owner, ImDrawList& DrawLi
 		}
 
 		const ImU32 TextColor = ToImGuiPackedColor(bActive || bHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted);
-		DrawList.AddText({X + Padding, Y + (Height - TextSize.y) * 0.5f}, TextColor, Label.c_str());
+		if (Icon)
+		{
+			DrawToolUIIcon(&DrawList, {X + Padding + 7.f * Scale, Y + Height * 0.5f}, Scale * 0.8f, ToImGuiPackedColor(bActive || bHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted), *Icon);
+		}
+
+		DrawList.AddText({X + Padding + IconWidth, Y + (Height - TextSize.y) * 0.5f}, TextColor, Label.c_str());
 		if (bActive)
 		{
 			const float Thickness = 2.f * Scale;
@@ -1046,10 +1055,10 @@ void DrawDocumentTabs(FToolUIContext::FImplementation& Owner, ImDrawList& DrawLi
 		X = Maximum.x + 2.f * Scale;
 	};
 
-	DrawTab(0, Owner.LevelTabLabel, false);
+	DrawTab(0, Owner.LevelTabLabel, false, EToolUIMenuIcon::Cube);
 	for (const FToolUIDocument& Document : Owner.Documents)
 	{
-		DrawTab(Document.Id, Document.Label, true);
+		DrawTab(Document.Id, Document.Label, true, Document.Icon);
 	}
 }
 
@@ -2441,6 +2450,28 @@ std::span<const FToolUIItem> FToolUIContext::GetRecordedItems() const noexcept
 	return Implementation->ItemRecorder.Items;
 }
 
+void FToolUIContext::SetNextDocumentIcon(const EToolUIMenuIcon Icon) noexcept
+{
+	Implementation->NextDocumentIcon = Icon;
+}
+
+bool FToolUIContext::IsVSyncEnabled() const noexcept
+{
+	return Implementation->bVSync;
+}
+
+void FToolUIContext::SetVSyncEnabled(const bool bEnabled)
+{
+	if (Implementation->bVSync != bEnabled)
+	{
+		Implementation->bVSync = bEnabled;
+		if (Implementation->VSyncChanged)
+		{
+			Implementation->VSyncChanged(bEnabled);
+		}
+	}
+}
+
 void FToolUIContext::QueueClick(const float X, const float Y, const int Button, const bool bDouble)
 {
 	ImGui::SetCurrentContext(Implementation->Context);
@@ -2876,7 +2907,7 @@ void ToolUIIcon(const EToolUIMenuIcon Icon, const float CenterX, const float Cen
 	DrawToolUIIcon(ImGui::GetWindowDrawList(), {CenterX, CenterY}, Scale, Color, Icon);
 }
 
-void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems, const std::function<void()>& DrawStatusItems, const std::function<void()>& DrawFileMenuItems, const std::function<void()>& DrawEditMenuItems, const std::function<void()>& DrawToolsMenuItems)
+void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, const std::function<void()>& DrawViewMenuItems, const std::function<void()>& DrawStatusItems, const std::function<void()>& DrawFileMenuItems, const std::function<void()>& DrawEditMenuItems, const std::function<void()>& DrawToolsMenuItems)
 {
 	if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal))
 	{
@@ -2931,8 +2962,18 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		DrawList->AddRectFilled(SystemMinimum, SystemMaximum, IM_COL32(255, 255, 255, 24), Implementation->Metrics.TitleBarControlRounding * ChromeScale);
 	}
 
-	DrawList->AddCircle({SystemMinimum.x + 18.f * ChromeScale, SystemMinimum.y + 18.f * ChromeScale}, 7.f * ChromeScale, ToImGuiPackedColor(ToolUITheme::NeutralAccent), 24, 2.f * ChromeScale);
-	DrawList->AddCircleFilled({SystemMinimum.x + 18.f * ChromeScale, SystemMinimum.y + 18.f * ChromeScale}, 2.f * ChromeScale, ToImGuiPackedColor(ToolUITheme::NeutralAccent));
+	// The application mark from Herta.svg: an isometric cube notched top and bottom into an H, as two pillars and a bar on its 256 unit grid.
+	const float MarkScale = 18.f * ChromeScale / 256.f;
+	const ImVec2 MarkOrigin{SystemMinimum.x + 18.f * ChromeScale - 128.f * MarkScale, SystemMinimum.y + 18.f * ChromeScale - 128.f * MarkScale};
+	const auto MarkPoint = [&](const float X, const float Y)
+	{
+		return ImVec2{MarkOrigin.x + X * MarkScale, MarkOrigin.y + Y * MarkScale};
+	};
+
+	const ImU32 MarkColor = ToImGuiPackedColor(ToolUITheme::NeutralAccent);
+	DrawList->AddQuadFilled(MarkPoint(33.f, 73.f), MarkPoint(109.f, 30.f), MarkPoint(109.f, 226.f), MarkPoint(33.f, 183.f), MarkColor);
+	DrawList->AddQuadFilled(MarkPoint(147.f, 30.f), MarkPoint(223.f, 73.f), MarkPoint(223.f, 183.f), MarkPoint(147.f, 226.f), MarkColor);
+	DrawList->AddRectFilled(MarkPoint(109.f, 99.f), MarkPoint(147.f, 157.f), MarkColor);
 	DrawWindowControls(*DrawList, ViewportMinimum, TitleBarLayout);
 
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * ChromeScale, 7.f * ChromeScale});
@@ -2956,47 +2997,6 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 			if (DrawFileMenuItems)
 			{
 				DrawFileMenuItems();
-				ImGui::Spacing();
-			}
-
-			ImGui::TextUnformatted(Text(Editor::Menu_Workspace, "Workspace").c_str());
-			ImGui::Separator();
-			if (Implementation->Text && ImGui::BeginMenu(std::format("{}###Language", Text(Editor::Menu_Language, "Language")).c_str()))
-			{
-				// Each language shows in its own name, so someone who cannot read the current one still finds theirs.
-				std::vector<std::string> Cultures = Implementation->Text->GetAvailableCultures();
-				if (GetBuildConfiguration() != EBuildConfiguration::Shipping)
-				{
-					Cultures.emplace_back(PseudoCulture);
-				}
-
-				for (const std::string& Culture : Cultures)
-				{
-					bool bSelected = Implementation->Appearance.Culture == Culture;
-					if (ToolUIMenuItem(Implementation->Text->FormatIn(Culture, Editor::Language_Name), EToolUIMenuIcon::Panel, &bSelected))
-					{
-						FEditorAppearance Appearance = Implementation->Appearance;
-						Appearance.Culture = Culture;
-						SetAppearance(std::move(Appearance));
-					}
-				}
-
-				ImGui::EndMenu();
-			}
-
-			bool bVSync = Implementation->bVSync;
-			if (ToolUIMenuItem(Text(Editor::Menu_VSync, "VSync"), EToolUIMenuIcon::Sync, &bVSync))
-			{
-				Implementation->bVSync = !Implementation->bVSync;
-				if (Implementation->VSyncChanged)
-				{
-					Implementation->VSyncChanged(Implementation->bVSync);
-				}
-			}
-
-			if (ToolUIMenuItem(Text(Editor::Menu_ResetLayout, "Reset layout"), EToolUIMenuIcon::Layout))
-			{
-				Implementation->bBuildDefaultLayout = true;
 			}
 
 			ImGui::Separator();
@@ -3009,20 +3009,28 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 			ImGui::EndMenu();
 		}
 
-		for (const auto& [Id, English] : {std::pair{Editor::Menu_Edit, "Edit"}, std::pair{Editor::Menu_Window, "Window"}, std::pair{Editor::Menu_Tools, "Tools"}, std::pair{Editor::Menu_Help, "Help"}})
+		// Help returns when it has something to show.
+		for (const auto& [Id, English] : {std::pair{Editor::Menu_Edit, "Edit"}, std::pair{Editor::Menu_View, "View"}, std::pair{Editor::Menu_Tools, "Tools"}})
 		{
-			const bool bWindowMenu = Id.Hash == Editor::Menu_Window.Hash;
+			const bool bViewMenu = Id.Hash == Editor::Menu_View.Hash;
 			const bool bEditMenu = Id.Hash == Editor::Menu_Edit.Hash;
 			const bool bToolsMenu = Id.Hash == Editor::Menu_Tools.Hash;
 			ImGui::SetNextWindowSizeConstraints(MinimumMenuSize, MaximumMenuSize);
-			if (ImGui::BeginMenu(std::format("{}###{}", Text(Id, English), English).c_str(), (bWindowMenu && static_cast<bool>(DrawWindowMenuItems)) || (bEditMenu && static_cast<bool>(DrawEditMenuItems)) || (bToolsMenu && static_cast<bool>(DrawToolsMenuItems))))
+			if (ImGui::BeginMenu(std::format("{}###{}", Text(Id, English), English).c_str(), bViewMenu || (bEditMenu && static_cast<bool>(DrawEditMenuItems)) || (bToolsMenu && static_cast<bool>(DrawToolsMenuItems))))
 			{
 				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * ChromeScale, 6.f * ChromeScale});
-				if (bWindowMenu)
+				if (bViewMenu)
 				{
-					ImGui::TextUnformatted(Text(Editor::Menu_Panels, "Panels").c_str());
-					ImGui::Separator();
-					DrawWindowMenuItems();
+					if (DrawViewMenuItems)
+					{
+						DrawViewMenuItems();
+						ImGui::Separator();
+					}
+
+					if (ToolUIMenuItem(Text(Editor::Menu_ResetLayout, "Reset layout"), EToolUIMenuIcon::Layout))
+					{
+						Implementation->bBuildDefaultLayout = true;
+					}
 				}
 				else if (bToolsMenu)
 				{
@@ -3200,12 +3208,13 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 	const bool bDocument = Kind == EToolUIPanelKind::Document;
 	if (bDocument)
 	{
+		const std::optional<EToolUIMenuIcon> Icon = std::exchange(Implementation->NextDocumentIcon, std::nullopt);
 		const std::string_view TabLabel = Name.substr(0, Name.find("###"));
 		const auto Existing = std::ranges::find(Implementation->Documents, WindowId, &FToolUIDocument::Id);
 		if (Existing == Implementation->Documents.end())
 		{
 			// As in Unreal, a newly opened asset editor comes to the front.
-			Implementation->Documents.push_back({.Id = WindowId, .Label = std::string(TabLabel), .LastFrame = ImGui::GetFrameCount()});
+			Implementation->Documents.push_back({.Id = WindowId, .Label = std::string(TabLabel), .LastFrame = ImGui::GetFrameCount(), .Icon = Icon});
 			Implementation->ActiveDocument = WindowId;
 			Implementation->FocusRequestedDocument = WindowId;
 		}
@@ -3213,6 +3222,7 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 		{
 			Existing->Label = TabLabel;
 			Existing->LastFrame = ImGui::GetFrameCount();
+			Existing->Icon = Icon;
 		}
 
 		// A panel that asks for focus is reopening an asset that is already open.

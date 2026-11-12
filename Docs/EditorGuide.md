@@ -8,7 +8,7 @@ The editor loads and saves levels with selectable entities, editable components,
 
 The workspace renders the level across the canvas beneath blurred Outliner, Details, Content Browser, and Output Log overlays, with compact chrome, glass viewport controls, and inline transform editing. The camera's projection center follows the unobscured Viewport pane, so overlays do not push the subject off-center. The main Viewport stays anchored to the central dock area with no tab bar; other panels remain movable, dockable, and resizable. The world grid is procedural on the GPU, with antialiased lines and a distance fade.
 
-See [Rendering.md](Rendering.md) for GPU ownership, shader cooking, and renderer verification. The editor starts maximized. Use **File > Reset layout** to restore the default arrangement: a 440 px right column (20 to 40% of the workspace) where Outliner takes 35% and Details with Performance takes the rest, and a bottom dock taking 36% of the workspace height with Content Browser before Output Log. Existing saved layouts are preserved when defaults change.
+See [Rendering.md](Rendering.md) for GPU ownership, shader cooking, and renderer verification. The editor starts maximized. Use **View > Reset layout** to restore the default arrangement: a 440 px right column (20 to 40% of the workspace) where Outliner takes 35% and Details with Performance takes the rest, and a bottom dock taking 36% of the workspace height with Content Browser before Output Log. Existing saved layouts are preserved when defaults change.
 
 ## Viewport controls
 
@@ -98,7 +98,7 @@ Press the backtick key to open Output Log and focus its command field; pressing 
 
 ## Appearance
 
-Use **Window > Appearance...** for all workspace styling, including panel transparency, opacity, blur, gradient, and accent color. Default panel opacity is 95%, with 24 px background blur. On an HDR display, the same popup turns on **HDR output** and sets peak brightness and paper white, which follow the operating system until changed; **Calibrate peak** shows a clipping pattern in the viewport. See [HdrOutput.md](HdrOutput.md).
+Use **Edit > Preferences** for all workspace styling. It opens as a tab beside the level, with Appearance, Language, and Display sections. Appearance covers panel transparency, opacity, blur, gradient, and accent color. Default panel opacity is 95%, with 24 px background blur. On an HDR display, the Display section turns on **HDR output** and sets peak brightness and paper white, which follow the operating system until changed; **Calibrate peak** shows a clipping pattern in the viewport. See [HdrOutput.md](HdrOutput.md).
 
 ## Blur profiling
 
@@ -110,7 +110,7 @@ Set `HERTA_PROFILE_BLUR=1` before launching the editor to log GPU timings for th
 
 Asset editors such as Material, Material Graph, and Animation Graph open as tabs beside the level tab in the row under the title bar, as Unreal's major tabs do. Each tab owns the whole workspace: while an asset tab is in front, the level's viewport, Outliner, Details, and bottom panel are hidden and the viewport stops rendering. Middle-click or the tab's close button closes it, and an unsaved asset asks first. Play and Simulate bring the level back in front. In an asset tab, **Ctrl+Space** or the Content Browser button opens the content drawer across the bottom of the workspace, and the Output Log button opens the log the same way; drag an asset from the drawer onto a Material texture slot. A drawer closes on Escape, its button, or a click outside it.
 
-The player plays the entity with a **Player** component, which needs a Character on the same entity: its skinned Static Mesh, and its Character's weapon, sounds, and effects. **Window > Player Animation Graph** opens its [animation graph](Animation.md#animation-graph).
+The player plays the entity with a **Player** component, which needs a Character on the same entity: its skinned Static Mesh, and its Character's weapon, sounds, and effects. **Tools > Player animation graph** opens its [animation graph](Animation.md#animation-graph).
 
 Right-click a folder and choose **Open in Explorer** (Windows) or **Open in file manager** (Linux) to open it in the default file manager. Right-clicking empty space opens the current content folder. **Ctrl+Shift+O** in the focused Content Browser opens the selected folder, the selected asset's containing folder, or the current folder when nothing is selected.
 

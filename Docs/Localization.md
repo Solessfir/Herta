@@ -82,7 +82,7 @@ The editor merges Noto Emoji into its ImGui fonts and builds ImGui with 32-bit `
 
 ## Editor
 
-File > Language switches the editor and editor Play between the loaded languages; the choice persists in the editor appearance file. Window > Localization opens the translation editor: pick a translation, search keys and text, filter to untranslated messages, and edit translations with live validation and a preview formatted with sample arguments. Save writes canonical catalogs atomically. The editor polls the catalog folders once a second and reloads on any change, including edits made outside it; a catalog that fails to load keeps the previous text and logs why.
+Edit > Preferences > Language switches the editor and editor Play between the loaded languages; the choice persists in the editor appearance file. Tools > Localization opens the translation editor: pick a translation, search keys and text, filter to untranslated messages, and edit translations with live validation and a preview formatted with sample arguments. Save writes canonical catalogs atomically. The editor polls the catalog folders once a second and reloads on any change, including edits made outside it; a catalog that fails to load keeps the previous text and logs why.
 
 `HertaEditorCmd localization.validate` checks both catalog roots and lists errors, untranslated messages, and non-canonical files; staging refuses catalogs that do not load.
 

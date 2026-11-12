@@ -236,10 +236,12 @@ public:
 	void BeginFrame();
 	[[nodiscard]] std::expected<void, FToolUIError> EndFrame(bool bRenderMainViewport = true);
 	[[nodiscard]] std::expected<void, FToolUIError> RenderPlatformWindows();
-	// DrawFileMenuItems adds items at the top of the File menu, above the workspace section.
-	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems = {}, const std::function<void()>& DrawStatusItems = {}, const std::function<void()>& DrawFileMenuItems = {}, const std::function<void()>& DrawEditMenuItems = {}, const std::function<void()>& DrawToolsMenuItems = {});
+	// The callbacks fill the File menu above Exit, the Edit and Tools menus, and the View menu above Reset layout.
+	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawViewMenuItems = {}, const std::function<void()>& DrawStatusItems = {}, const std::function<void()>& DrawFileMenuItems = {}, const std::function<void()>& DrawEditMenuItems = {}, const std::function<void()>& DrawToolsMenuItems = {});
 	[[nodiscard]] bool BeginPanel(std::string_view Name, bool* bOpen = nullptr, EToolUIPanelKind Kind = EToolUIPanelKind::Tool);
 	void EndPanel();
+	// The icon the next Document panel shows in its tab.
+	void SetNextDocumentIcon(EToolUIMenuIcon Icon) noexcept;
 	void SetViewportImmersive(bool bImmersive) noexcept;
 	[[nodiscard]] bool IsViewportImmersive() const noexcept;
 	// Undocks a panel to screen-space bounds the next time it begins. Bounds outside the main window give it its own native window.
@@ -273,6 +275,9 @@ public:
 	// The editor's text, which outlives the context; without it the workspace shows English.
 	void SetText(const FLocalization* Text) noexcept;
 	void SetAppearance(FEditorAppearance Appearance) noexcept;
+	// Vertical sync, as the descriptor set it or the user last changed it; a change reaches the descriptor's VSyncChanged.
+	[[nodiscard]] bool IsVSyncEnabled() const noexcept;
+	void SetVSyncEnabled(bool bEnabled);
 	[[nodiscard]] const FEditorAppearance& GetAppearance() const noexcept;
 	[[nodiscard]] const FToolUIThemeMetrics& GetMetrics() const noexcept;
 	[[nodiscard]] bool WantsTextInput() const noexcept;

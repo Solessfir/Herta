@@ -278,6 +278,17 @@ struct FLocalizationPanelState
 	std::string Status{};
 };
 
+// The Project Settings tab's copy of the descriptor on disk, kept while the tab is open.
+struct FProjectSettingsState
+{
+	std::filesystem::path Path{};
+	FProjectDescriptor Saved{};
+	FProjectDescriptor Draft{};
+	std::string Message{};
+	int Section = 0;
+	bool bLoaded = false;
+};
+
 struct FEditorFramework::FImplementation
 {
 	FImplementation();
@@ -315,7 +326,9 @@ struct FEditorFramework::FImplementation
 	void RefreshPreviewMeshes();
 	[[nodiscard]] const FRenderMesh* RefreshSoftBodyPreview(std::size_t Index, const FLevelEntity& Entity);
 	void RefreshVisuals();
-	void DrawHdrDisplaySettings(FEditorDisplay& Display, float ValueWidth);
+	void DrawHdrDisplaySettings(FEditorDisplay& Display);
+	void DrawPreferencesTab();
+	void DrawProjectSettingsTab();
 	void RefreshSelectedVisualEntities();
 	void DrawMaterialPanel();
 	std::expected<std::string, FAssetError> CreateMaterialGraph(FAssetId Id);
@@ -559,7 +572,15 @@ struct FEditorFramework::FImplementation
 	std::unique_ptr<FEditorPlugins> Plugins;
 	std::filesystem::path PluginProject;
 	bool bPluginsOpen = false;
-	bool bAppearanceRequested = false;
+	bool bPluginsFocusRequested = false;
+
+	// Settings tabs. Choosing an open one from its menu brings its tab to the front.
+	bool bPreferencesOpen = false;
+	bool bPreferencesFocusRequested = false;
+	int PreferencesSection = 0;
+	bool bProjectSettingsOpen = false;
+	bool bProjectSettingsFocusRequested = false;
+	std::optional<FProjectSettingsState> ProjectSettings;
 	std::chrono::steady_clock::time_point PluginsLoaded{};
 
 	// The project's game modules. Play's systems run their code, so the modules are declared before the session and outlive it.

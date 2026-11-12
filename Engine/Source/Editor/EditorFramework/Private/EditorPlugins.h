@@ -3,10 +3,12 @@
 #include "Herta/EditorCore/EditorPlugin.h"
 #include "Herta/EditorCore/Plugins.h"
 
+#include <array>
 #include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Herta
@@ -51,7 +53,8 @@ public:
 	void DrawWindowMenuItems();
 	void DrawToolsMenuItems();
 	[[nodiscard]] bool HasToolsMenuItems() const noexcept;
-	void DrawManager(FToolUIContext& ToolUI, bool& bOpen);
+	// The Plugins tab. TabTitle is its localized name.
+	void DrawManager(FToolUIContext& ToolUI, bool& bOpen, bool bFocus, std::string_view TabTitle);
 
 	[[nodiscard]] bool IsSafeMode() const noexcept;
 	[[nodiscard]] std::vector<std::string> GetLoadedNames() const;
@@ -93,6 +96,9 @@ private:
 
 	FPluginCatalog Catalog{};
 	FPluginOverrides Overrides{};
+	// The Plugins tab's section and search text.
+	int ManagerSection = 0;
+	std::array<char, 96> ManagerSearch{};
 	// The choices the editor started with, so the manager can tell which changes wait for a restart.
 	FPluginOverrides StartupOverrides{};
 	std::vector<FPluginDiagnostic> Diagnostics{};

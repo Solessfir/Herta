@@ -8,22 +8,6 @@ namespace
 {
 namespace Editor = Text::Editor;
 
-[[nodiscard]] constexpr const char* GetPanelTransparencyLabel(const EPanelTransparency Mode) noexcept
-{
-	switch (Mode)
-	{
-		case EPanelTransparency::AllPanels:
-			return "All panels";
-		case EPanelTransparency::FloatingOnly:
-			return "Floating panels";
-		case EPanelTransparency::DockedOnly:
-			return "Docked panels";
-		case EPanelTransparency::Disabled:
-			return "Opaque panels";
-	}
-
-	return "Unknown";
-}
 }
 
 FEditorFramework::FImplementation::~FImplementation()
@@ -721,18 +705,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 		ToolUIMenuItem("Performance", EToolUIMenuIcon::Performance, &Implementation->bPerformanceOpen);
 		ToolUIMenuItem("World Settings", EToolUIMenuIcon::World, &Implementation->bWorldSettingsOpen);
-		ImGui::BeginDisabled(Implementation->FindPlayerEntity() == nullptr);
-		if (ToolUIMenuItem("Player Animation Graph", EToolUIMenuIcon::Open))
-		{
-			Implementation->OpenPlayerAnimationGraph();
-		}
-
-		ImGui::EndDisabled();
-		ToolUIMenuItem("Localization", EToolUIMenuIcon::Details, &Implementation->bLocalizationOpen);
-		ToolUIMenuItem("Plugins", EToolUIMenuIcon::Panel, &Implementation->bPluginsOpen);
 		Implementation->Plugins->DrawWindowMenuItems();
-		ImGui::Separator();
-		Implementation->bAppearanceRequested |= ToolUIMenuItem("Appearance...", EToolUIMenuIcon::Appearance);
 	}, [&]
 	{
 		const float Scale = ImGui::GetFontSize() / Implementation->ToolUI->GetMetrics().BaseFontSize;
@@ -761,173 +734,28 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::GetWindowDrawList()->AddCircleFilled({DotPosition.x + 4.f * Scale, ReadyCenterY}, 2.5f * Scale, IM_COL32(164, 189, 148, 255));
 		ImGui::SameLine();
 		ImGui::TextDisabled("%zu objects", Implementation->PreviewObjects.size());
-		// The Window menu asks for the popup, which lives in the status bar ID scope.
-		if (std::exchange(Implementation->bAppearanceRequested, false))
-		{
-			ImGui::OpenPopup("WorkspaceAppearance");
-		}
-
 		ImGui::PopStyleColor(3);
 		ImGui::PopStyleVar(3);
-		// Fixed width so right-aligned fields do not depend on auto-fit content.
-		ImGui::SetNextWindowSize({320.f * Scale, 0.f});
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14.f * Scale, 12.f * Scale});
-		const bool bAppearanceOpen = ImGui::BeginPopup("WorkspaceAppearance");
-		ImGui::PopStyleVar();
-
-		if (bAppearanceOpen)
-		{
-			FEditorAppearance Appearance = Implementation->ToolUI->GetAppearance();
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {ImGui::GetStyle().FramePadding.x, 3.f * Scale});
-			ImGui::AlignTextToFramePadding();
-			ImGui::TextUnformatted("Appearance");
-			const float ResetWidth = ImGui::CalcTextSize("Reset").x + ImGui::GetStyle().FramePadding.x * 2.f;
-			ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ResetWidth);
-			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
-			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-
-			if (ImGui::Button("Reset"))
-			{
-				// Display settings describe the monitor, not the look, so they survive a reset.
-				const FEditorDisplay Display = Appearance.Display;
-				Appearance = FEditorAppearance{};
-				Appearance.Display = Display;
-			}
-
-			ImGui::PopStyleColor(2);
-			ImGui::SetItemTooltip("Restore default appearance");
-			ImGui::Separator();
-			const float ValueWidth = 140.f * Scale;
-			DrawFieldLabel("Panel transparency", ValueWidth);
-			const char* const PanelMode = GetPanelTransparencyLabel(Appearance.PanelTransparency);
-
-			if (ImGui::BeginCombo("##PanelTransparency", PanelMode))
-			{
-				constexpr std::array Modes = {
-				    std::pair{EPanelTransparency::AllPanels, "All panels"},
-				    std::pair{EPanelTransparency::FloatingOnly, "Floating panels"},
-				    std::pair{EPanelTransparency::DockedOnly, "Docked panels"},
-				    std::pair{EPanelTransparency::Disabled, "Opaque panels"},
-				};
-
-				for (const auto& [Mode, Label] : Modes)
-				{
-					if (ImGui::Selectable(Label, Appearance.PanelTransparency == Mode))
-					{
-						Appearance.PanelTransparency = Mode;
-					}
-				}
-
-				ImGui::EndCombo();
-			}
-
-			float OpacityPercent = Appearance.PanelOpacity * 100.f;
-			DrawFieldLabel("Panel opacity", ValueWidth);
-
-			if (DrawNumericSliderFloat("##Opacity", &OpacityPercent, 0.f, 100.f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp))
-			{
-				Appearance.PanelOpacity = OpacityPercent / 100.f;
-			}
-
-			DrawFieldLabel("Panel blur", ValueWidth);
-			DrawNumericSliderFloat("##Blur", &Appearance.BlurRadius, 0.f, 40.f, "%.0f px", ImGuiSliderFlags_AlwaysClamp);
-			ImGui::Separator();
-
-			float GradientHeightPercent = Appearance.GradientHeight * 100.f;
-			float SaturationPercent = Appearance.Saturation * 100.f;
-			float IntensityPercent = Appearance.Intensity * 100.f;
-			DrawFieldLabel("Gradient height", ValueWidth);
-
-			if (DrawNumericSliderFloat("##GradientHeight", &GradientHeightPercent, 0.f, 100.f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp))
-			{
-				Appearance.GradientHeight = GradientHeightPercent / 100.f;
-			}
-
-			DrawFieldLabel("Color saturation", ValueWidth);
-
-			if (DrawNumericSliderFloat("##Saturation", &SaturationPercent, 0.f, 100.f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp))
-			{
-				Appearance.Saturation = SaturationPercent / 100.f;
-			}
-
-			DrawFieldLabel("Color intensity", ValueWidth);
-
-			if (DrawNumericSliderFloat("##Intensity", &IntensityPercent, 0.f, 100.f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp))
-			{
-				Appearance.Intensity = IntensityPercent / 100.f;
-			}
-
-			std::array Color = {
-			    static_cast<float>(Appearance.Accent.Red) / 255.f,
-			    static_cast<float>(Appearance.Accent.Green) / 255.f,
-			    static_cast<float>(Appearance.Accent.Blue) / 255.f,
-			};
-
-			DrawFieldLabel("Accent color", ValueWidth);
-
-			if (ImGui::ColorEdit3("##AccentColor", Color.data()))
-			{
-				Appearance.Accent.Red = static_cast<std::uint8_t>(std::lround(Color[0] * 255.f));
-				Appearance.Accent.Green = static_cast<std::uint8_t>(std::lround(Color[1] * 255.f));
-				Appearance.Accent.Blue = static_cast<std::uint8_t>(std::lround(Color[2] * 255.f));
-			}
-
-			for (std::size_t Index = 0; Index < ToolUITheme::Presets.size(); ++Index)
-			{
-				if (Index > 0)
-				{
-					ImGui::SameLine();
-				}
-
-				const FToolUIColorPreset& Preset = ToolUITheme::Presets[Index];
-				ImGui::PushID(static_cast<int>(Index));
-
-				if (ImGui::ColorButton("##Preset", ImGui::ColorConvertU32ToFloat4(PackColor(Preset.Color)), ImGuiColorEditFlags_NoTooltip, {22.f * Scale, 22.f * Scale}))
-				{
-					Appearance.Accent = Preset.Color;
-				}
-
-				if (ImGui::IsItemHovered())
-				{
-					const char* const PresetName = Preset.Name.data();
-					ImGui::BeginTooltip();
-					ImGui::TextUnformatted(PresetName, PresetName + Preset.Name.size());
-					ImGui::EndTooltip();
-				}
-
-				ImGui::PopID();
-			}
-
-			Implementation->DrawHdrDisplaySettings(Appearance.Display, ValueWidth);
-			ImGui::PopStyleVar();
-			Implementation->ToolUI->SetAppearance(Appearance);
-			ImGui::EndPopup();
-		}
-		else
-		{
-			Implementation->bHdrCalibration = false;
-		}
 	}, [&]
 	{
-		ImGui::TextUnformatted(Localization.Format(Editor::Menu_Project).c_str());
-		ImGui::Separator();
 		ImGui::BeginDisabled(!bProjectChangeAvailable);
 		bNewProjectRequested |= ToolUIMenuItem(Localization.Format(Editor::Menu_NewProject), EToolUIMenuIcon::Add, nullptr, "Ctrl+N");
 		bOpenProjectRequested |= ToolUIMenuItem(Localization.Format(Editor::Menu_OpenProject), EToolUIMenuIcon::Open, nullptr, "Ctrl+O");
 		ImGui::EndDisabled();
-		ImGui::Spacing();
-		ImGui::TextUnformatted(Localization.Format(Editor::Menu_Level).c_str());
 		ImGui::Separator();
 		ImGui::BeginDisabled(!bAuthoringAvailable);
-		bOpenLevelRequested = ToolUIMenuItem(Localization.Format(Editor::Menu_OpenLevel), EToolUIMenuIcon::Open);
+		bOpenLevelRequested = ToolUIMenuItem(Localization.Format(Editor::Menu_OpenLevel), EToolUIMenuIcon::Cube);
 		bSaveLevelRequested |= ToolUIMenuItem(Localization.Format(Editor::Menu_SaveLevel), EToolUIMenuIcon::Save, nullptr, "Ctrl+S");
 		ImGui::EndDisabled();
-		ImGui::Spacing();
-		ImGui::TextUnformatted(Localization.Format(Editor::Menu_Content).c_str());
 		ImGui::Separator();
 		ImGui::BeginDisabled(!Implementation->Assets || Implementation->bProjectBusy);
 		bImportRequested |= ToolUIMenuItem(Localization.Format(Editor::Menu_Import), EToolUIMenuIcon::Import, nullptr, "Ctrl+I");
 		ImGui::EndDisabled();
+		ImGui::Separator();
+		if (ToolUIMenuItem(Localization.Format(Editor::Menu_ProjectSettings), EToolUIMenuIcon::Settings))
+		{
+			Implementation->bProjectSettingsOpen = Implementation->bProjectSettingsFocusRequested = true;
+		}
 	}, [&]
 	{
 		ImGui::BeginDisabled(!bAuthoringAvailable);
@@ -968,11 +796,32 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 
 		ImGui::EndDisabled();
-	}, Implementation->Plugins->HasToolsMenuItems() ? std::function<void()>([&]
+		ImGui::Separator();
+		if (ToolUIMenuItem(Localization.Format(Editor::Menu_Preferences), EToolUIMenuIcon::Appearance))
+		{
+			Implementation->bPreferencesOpen = Implementation->bPreferencesFocusRequested = true;
+		}
+	}, [&]
 	{
-		Implementation->Plugins->DrawToolsMenuItems();
-	})
-	                                                : std::function<void()>{});
+		if (ToolUIMenuItem(Localization.Format(Editor::Menu_Plugins), EToolUIMenuIcon::Panel))
+		{
+			Implementation->bPluginsOpen = Implementation->bPluginsFocusRequested = true;
+		}
+
+		ToolUIMenuItem(Localization.Format(Editor::Menu_Localization), EToolUIMenuIcon::World, &Implementation->bLocalizationOpen);
+		ImGui::BeginDisabled(Implementation->FindPlayerEntity() == nullptr);
+		if (ToolUIMenuItem(Localization.Format(Editor::Menu_PlayerAnimationGraph), EToolUIMenuIcon::Open))
+		{
+			Implementation->OpenPlayerAnimationGraph();
+		}
+
+		ImGui::EndDisabled();
+		if (Implementation->Plugins->HasToolsMenuItems())
+		{
+			ImGui::Separator();
+			Implementation->Plugins->DrawToolsMenuItems();
+		}
+	});
 
 	ImGui::BeginDisabled(!bAuthoringAvailable);
 	if (const auto Placement = DrawPlaceObjectsMenu(*Implementation->ToolUI, Implementation->PlaceObjectsMenuState, bPlaceObjectsRequested))
@@ -1191,7 +1040,9 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	Implementation->DrawPerformancePanel();
 	Implementation->DrawWorldSettingsPanel();
 	Implementation->DrawLocalizationPanel();
-	Implementation->Plugins->DrawManager(*Implementation->ToolUI, Implementation->bPluginsOpen);
+	Implementation->Plugins->DrawManager(*Implementation->ToolUI, Implementation->bPluginsOpen, std::exchange(Implementation->bPluginsFocusRequested, false), Localization.Format(Editor::Menu_Plugins));
+	Implementation->DrawPreferencesTab();
+	Implementation->DrawProjectSettingsTab();
 	Implementation->Plugins->DrawPanels(*Implementation->ToolUI);
 	if (!Implementation->IsSimulating())
 	{
