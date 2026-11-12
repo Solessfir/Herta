@@ -623,10 +623,27 @@ void FIconPen::Stroke(const std::span<const ImVec2> Points, const float Width, c
 
 	const ImU32 Ink = Tone(Opacity);
 	Draw.AddPolyline(Placed.data(), static_cast<int>(Placed.size()), Ink, bClosed ? ImDrawFlags_Closed : ImDrawFlags_None, Width * Scale);
-	// Discs at every vertex round the caps and joins, which ImGui draws square.
-	for (const ImVec2 Point : Placed)
+	// Discs round the caps and sharp joins, which ImGui draws square; the shallow joins of a tessellated arc need none.
+	const std::size_t Count = Placed.size();
+	for (std::size_t Index = 0; Index < Count; ++Index)
 	{
-		Draw.AddCircleFilled(Point, Width * Scale * 0.5f, Ink, 12);
+		const bool bEnd = !bClosed && (Index == 0 || Index + 1 == Count);
+		if (!bEnd && Count > 2)
+		{
+			const ImVec2 Previous = Placed[(Index + Count - 1) % Count];
+			const ImVec2 Point = Placed[Index];
+			const ImVec2 Next = Placed[(Index + 1) % Count];
+			const ImVec2 In{Point.x - Previous.x, Point.y - Previous.y};
+			const ImVec2 Out{Next.x - Point.x, Next.y - Point.y};
+			const float Lengths = std::sqrt((In.x * In.x + In.y * In.y) * (Out.x * Out.x + Out.y * Out.y));
+			// Turns under about 30 degrees stay covered by the polyline's own miter.
+			if (Lengths > 0.f && In.x * Out.x + In.y * Out.y > 0.866f * Lengths)
+			{
+				continue;
+			}
+		}
+
+		Draw.AddCircleFilled(Placed[Index], Width * Scale * 0.5f, Ink, 12);
 	}
 }
 
@@ -666,6 +683,15 @@ std::vector<ImVec2> FIconPen::Arc(const float X, const float Y, const float Radi
 
 void DrawToolUIIcon(ImDrawList* const Draw, const ImVec2 Center, const float Scale, const ImU32 Color, const EToolUIMenuIcon Icon)
 {
+	// Icons are tessellated strokes, and rows scrolled out of a panel still ask for theirs.
+	const float Extent = 9.f * Scale;
+	const ImVec2 ClipMinimum = Draw->GetClipRectMin();
+	const ImVec2 ClipMaximum = Draw->GetClipRectMax();
+	if (Center.x + Extent < ClipMinimum.x || Center.x - Extent > ClipMaximum.x || Center.y + Extent < ClipMinimum.y || Center.y - Extent > ClipMaximum.y)
+	{
+		return;
+	}
+
 	const FIconPen Pen(*Draw, Center, Scale, Color);
 	constexpr float Dim = 0.45f;
 	constexpr float Mid = 0.72f;
@@ -2717,6 +2743,17 @@ std::expected<void, FToolUIError> FToolUIContext::EndFrame(const bool bRenderMai
 		for (const ImDrawList* const List : Draw->CmdLists)
 		{
 			Stats.DrawCommands += static_cast<std::uint32_t>(List->CmdBuffer.Size);
+			const auto ListIndices = static_cast<std::uint32_t>(List->IdxBuffer.Size);
+			if (ListIndices <= Stats.Heaviest.back().Indices)
+			{
+				continue;
+			}
+
+			FToolUIDrawListStats Entry{.Commands = static_cast<std::uint32_t>(List->CmdBuffer.Size), .Indices = ListIndices};
+			const std::string_view Owner = List->_OwnerName ? std::string_view(List->_OwnerName) : std::string_view("?");
+			std::ranges::copy(Owner.substr(0, Entry.Name.size() - 1), Entry.Name.begin());
+			Stats.Heaviest.back() = Entry;
+			std::ranges::sort(Stats.Heaviest, std::ranges::greater{}, &FToolUIDrawListStats::Indices);
 		}
 	}
 

@@ -4,6 +4,7 @@
 #include "Herta/ToolUI/Theme.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -218,6 +219,14 @@ struct FToolUIItem
 	bool bInput = false;
 };
 
+// A draw list among the heaviest of a frame, named after its window; the name is truncated to fit.
+struct FToolUIDrawListStats
+{
+	std::array<char, 48> Name{};
+	std::uint32_t Commands = 0;
+	std::uint32_t Indices = 0;
+};
+
 // What the last frame asked the GPU to draw for the editor's UI, over every native window.
 struct FToolUIFrameStats
 {
@@ -227,6 +236,8 @@ struct FToolUIFrameStats
 	std::uint32_t DrawCommands = 0;
 	std::uint32_t Vertices = 0;
 	std::uint32_t Indices = 0;
+	// Sorted by index count, heaviest first; unused entries have no indices.
+	std::array<FToolUIDrawListStats, 5> Heaviest{};
 };
 
 class FToolUIContext final

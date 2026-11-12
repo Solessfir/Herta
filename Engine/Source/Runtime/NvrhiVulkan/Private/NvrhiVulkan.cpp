@@ -476,8 +476,8 @@ private:
 
 	struct FGlassResources
 	{
-		nvrhi::TextureHandle Snapshot;
-		nvrhi::BindingSetHandle SnapshotBindings;
+		// One binding set per swapchain image the blur has read; the resources are recreated with the swapchain.
+		std::vector<std::pair<const nvrhi::ITexture*, nvrhi::BindingSetHandle>> SourceBindings;
 		std::array<nvrhi::TextureHandle, GlassBlurLevels> Levels;
 		std::array<nvrhi::FramebufferHandle, GlassBlurLevels> LevelFramebuffers;
 		std::array<nvrhi::BindingSetHandle, GlassBlurLevels> LevelBindings;
@@ -500,9 +500,7 @@ private:
 
 	struct FBlurTiming
 	{
-		nvrhi::TimerQueryHandle Copy;
 		nvrhi::TimerQueryHandle Blur;
-		FBlurTimingMetric CopyMetric;
 		FBlurTimingMetric BlurMetric;
 		std::uint32_t Width = 0;
 		std::uint32_t Height = 0;
@@ -531,6 +529,7 @@ private:
 		bool bFrameActive = false;
 		bool bFrameSuboptimal = false;
 		bool bBackdropCopySupported = false;
+		bool bBackdropSampleSupported = false;
 	};
 
 public:
@@ -1389,7 +1388,8 @@ public:
 
 		constexpr auto GlassMarkerMax = std::numeric_limits<ImTextureID>::max();
 		constexpr auto GlassMarkerMin = GlassMarkerMax - 160;
-		const bool bGlassSupported = ToolUIOverrideViewport ? ToolUIOverrideViewport->bBackdropCopySupported : bBackdropCopySupported;
+		// The blur samples the swapchain image directly, so glass needs a sampleable swapchain.
+		const bool bGlassSupported = ToolUIOverrideViewport ? ToolUIOverrideViewport->bBackdropSampleSupported : bBackdropSampleSupported;
 		unsigned int BlurRadiusPixels = 0;
 		if (bGlassSupported)
 		{
@@ -1564,26 +1564,31 @@ public:
 					return GlassResult;
 				}
 
-				// The background and scene are complete; foreground panels never enter the shared snapshot.
+				// The background and scene are complete, so the first downsample reads them straight from the target before any foreground panel draws.
+				const auto SourceBinding = std::ranges::find(GlassResources.SourceBindings, Source, &std::pair<const nvrhi::ITexture*, nvrhi::BindingSetHandle>::first);
+				const nvrhi::BindingSetHandle SourceBindings = SourceBinding != GlassResources.SourceBindings.end() ? SourceBinding->second : MakeToolUIBindings(Source);
+				if (!SourceBindings)
+				{
+					return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not bind the ToolUI glass backdrop"});
+				}
+
+				if (SourceBinding == GlassResources.SourceBindings.end())
+				{
+					GlassResources.SourceBindings.emplace_back(Source, SourceBindings);
+				}
+
 				FBlurTiming* const Timing = PrepareBlurTiming(static_cast<std::uint32_t>(FramebufferWidth), static_cast<std::uint32_t>(FramebufferHeight), BlurRadiusPixels);
 				if (Timing)
 				{
-					RenderCommandList->beginTimerQuery(Timing->Copy);
-				}
-
-				RenderCommandList->copyTexture(GlassResources.Snapshot, nvrhi::TextureSlice{}, Source, nvrhi::TextureSlice{});
-				if (Timing)
-				{
-					RenderCommandList->endTimerQuery(Timing->Copy);
 					RenderCommandList->beginTimerQuery(Timing->Blur);
 				}
 
-				// Downsample from the snapshot through each level, then upsample back into level 0.
+				// Downsample from the target through each level, then upsample back into level 0.
 				for (std::uint32_t BlurPass = 0; BlurPass <= 2 * BlurPlan.Levels; ++BlurPass)
 				{
 					const bool bUpsample = BlurPass > BlurPlan.Levels;
 					const std::size_t Target = bUpsample ? 2 * BlurPlan.Levels - BlurPass : BlurPass;
-					const nvrhi::BindingSetHandle& BlurSource = bUpsample ? GlassResources.LevelBindings[Target + 1] : BlurPass == 0 ? GlassResources.SnapshotBindings
+					const nvrhi::BindingSetHandle& BlurSource = bUpsample ? GlassResources.LevelBindings[Target + 1] : BlurPass == 0 ? SourceBindings
 					                                                                                                                 : GlassResources.LevelBindings[Target - 1];
 					const auto& BlurDescriptor = GlassResources.Levels[Target]->getDesc();
 					nvrhi::GraphicsState BlurState;
@@ -2042,33 +2047,30 @@ private:
 			BlurTiming.Height = Height;
 			BlurTiming.Radius = Radius;
 			BlurTiming.Completed = 0;
-			BlurTiming.CopyMetric = {};
 			BlurTiming.BlurMetric = {};
 			BlurTiming.bDiscardPending = BlurTiming.bPending;
 		}
 
 		if (BlurTiming.bPending)
 		{
-			if (!NvrhiDevice->pollTimerQuery(BlurTiming.Copy) || !NvrhiDevice->pollTimerQuery(BlurTiming.Blur))
+			if (!NvrhiDevice->pollTimerQuery(BlurTiming.Blur))
 			{
 				return nullptr;
 			}
 
-			const float CopyMilliseconds = NvrhiDevice->getTimerQueryTime(BlurTiming.Copy) * 1000.f;
 			const float BlurMilliseconds = NvrhiDevice->getTimerQueryTime(BlurTiming.Blur) * 1000.f;
 			BlurTiming.bPending = false;
 			if (!BlurTiming.bDiscardPending)
 			{
 				if (BlurTiming.Completed >= WarmupSamples)
 				{
-					BlurTiming.CopyMetric.Add(CopyMilliseconds);
 					BlurTiming.BlurMetric.Add(BlurMilliseconds);
 				}
 
 				++BlurTiming.Completed;
 				if (BlurTiming.Completed == WarmupSamples + MeasuredSamples && Descriptor.Log)
 				{
-					HERTA_LOG_INFO(*Descriptor.Log, RhiLog, "Backdrop GPU {}x{}, radius {} px, {} samples: copy avg {:.3f} ms (min {:.3f}, max {:.3f}); blur avg {:.3f} ms (min {:.3f}, max {:.3f})", Width, Height, Radius, MeasuredSamples, BlurTiming.CopyMetric.Total / MeasuredSamples, BlurTiming.CopyMetric.Minimum, BlurTiming.CopyMetric.Maximum, BlurTiming.BlurMetric.Total / MeasuredSamples, BlurTiming.BlurMetric.Minimum, BlurTiming.BlurMetric.Maximum);
+					HERTA_LOG_INFO(*Descriptor.Log, RhiLog, "Backdrop GPU {}x{}, radius {} px, {} samples: blur avg {:.3f} ms (min {:.3f}, max {:.3f})", Width, Height, Radius, MeasuredSamples, BlurTiming.BlurMetric.Total / MeasuredSamples, BlurTiming.BlurMetric.Minimum, BlurTiming.BlurMetric.Maximum);
 				}
 			}
 
@@ -2080,11 +2082,10 @@ private:
 			return nullptr;
 		}
 
-		if (!BlurTiming.Copy)
+		if (!BlurTiming.Blur)
 		{
-			BlurTiming.Copy = NvrhiDevice->createTimerQuery();
 			BlurTiming.Blur = NvrhiDevice->createTimerQuery();
-			if (!BlurTiming.Copy || !BlurTiming.Blur)
+			if (!BlurTiming.Blur)
 			{
 				bProfileBlur = false;
 				if (Descriptor.Log)
@@ -2303,6 +2304,15 @@ private:
 		return NvrhiDevice->createGraphicsPipeline(PipelineDescriptor, Framebuffer->getFramebufferInfo());
 	}
 
+	[[nodiscard]] nvrhi::BindingSetHandle MakeToolUIBindings(nvrhi::ITexture* const Texture) const
+	{
+		nvrhi::BindingSetDesc Bindings;
+		Bindings.addItem(nvrhi::BindingSetItem::Texture_SRV(0, Texture));
+		Bindings.addItem(nvrhi::BindingSetItem::Sampler(0, ToolUISampler));
+		Bindings.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(FToolUIPushConstants)));
+		return NvrhiDevice->createBindingSet(Bindings, ToolUIBindingLayout);
+	}
+
 	[[nodiscard]] std::expected<void, FPresentationError> EnsureGlassResources(FGlassResources& GlassResources, nvrhi::ITexture* const Source)
 	{
 		if (GlassResources.BlurPipeline)
@@ -2311,19 +2321,10 @@ private:
 		}
 
 		FGlassResources NewResources;
-		nvrhi::TextureDesc SnapshotDescriptor = Source->getDesc();
-		SnapshotDescriptor.debugName = "ToolUI glass snapshot";
-		SnapshotDescriptor.isRenderTarget = false;
-		SnapshotDescriptor.isShaderResource = true;
-		SnapshotDescriptor.enableAutomaticStateTracking(nvrhi::ResourceStates::ShaderResource);
-		NewResources.Snapshot = NvrhiDevice->createTexture(SnapshotDescriptor);
-		if (!NewResources.Snapshot)
-		{
-			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not create ToolUI glass textures"});
-		}
-
-		nvrhi::TextureDesc BlurDescriptor = SnapshotDescriptor;
+		nvrhi::TextureDesc BlurDescriptor = Source->getDesc();
 		BlurDescriptor.isRenderTarget = true;
+		BlurDescriptor.isShaderResource = true;
+		BlurDescriptor.enableAutomaticStateTracking(nvrhi::ResourceStates::ShaderResource);
 		for (std::size_t Level = 0; Level < GlassBlurLevels; ++Level)
 		{
 			BlurDescriptor.debugName = Level == 0 ? "ToolUI shared blurred backdrop" : "ToolUI blur level";
@@ -2351,19 +2352,9 @@ private:
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not create ToolUI blur pipeline"});
 		}
 
-		const auto MakeBindings = [this](nvrhi::ITexture* const Texture)
-		{
-			nvrhi::BindingSetDesc Bindings;
-			Bindings.addItem(nvrhi::BindingSetItem::Texture_SRV(0, Texture));
-			Bindings.addItem(nvrhi::BindingSetItem::Sampler(0, ToolUISampler));
-			Bindings.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(FToolUIPushConstants)));
-			return NvrhiDevice->createBindingSet(Bindings, ToolUIBindingLayout);
-		};
-
-		NewResources.SnapshotBindings = MakeBindings(NewResources.Snapshot);
 		for (std::size_t Level = 0; Level < GlassBlurLevels; ++Level)
 		{
-			NewResources.LevelBindings[Level] = MakeBindings(NewResources.Levels[Level]);
+			NewResources.LevelBindings[Level] = MakeToolUIBindings(NewResources.Levels[Level]);
 		}
 
 		const auto IsMissing = [](const nvrhi::BindingSetHandle& Bindings)
@@ -2371,7 +2362,7 @@ private:
 			return !Bindings;
 		};
 
-		if (!NewResources.SnapshotBindings || std::ranges::any_of(NewResources.LevelBindings, IsMissing))
+		if (std::ranges::any_of(NewResources.LevelBindings, IsMissing))
 		{
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not bind ToolUI glass textures"});
 		}
@@ -2485,6 +2476,7 @@ private:
 		}
 
 		Viewport.bBackdropCopySupported = (Capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+		Viewport.bBackdropSampleSupported = (Capabilities.supportedUsageFlags & VK_IMAGE_USAGE_SAMPLED_BIT) != 0;
 
 		std::uint32_t FormatCount = 0;
 		Result = vkGetPhysicalDeviceSurfaceFormatsKHR(PhysicalDevice, Viewport.Surface, &FormatCount, nullptr);
@@ -2554,7 +2546,7 @@ private:
 		SwapchainInfo.imageColorSpace = Viewport.SurfaceFormat.colorSpace;
 		SwapchainInfo.imageExtent = {.width = Viewport.Extent.Width, .height = Viewport.Extent.Height};
 		SwapchainInfo.imageArrayLayers = 1;
-		SwapchainInfo.imageUsage = RequiredUsage | (Viewport.bBackdropCopySupported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
+		SwapchainInfo.imageUsage = RequiredUsage | (Viewport.bBackdropCopySupported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0) | (Viewport.bBackdropSampleSupported ? VK_IMAGE_USAGE_SAMPLED_BIT : 0);
 		SwapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		SwapchainInfo.preTransform = Capabilities.currentTransform;
 		SwapchainInfo.compositeAlpha = ChooseCompositeAlpha(Capabilities.supportedCompositeAlpha);
@@ -2590,7 +2582,7 @@ private:
 		TextureDescriptor.format = NvrhiFormat;
 		TextureDescriptor.dimension = nvrhi::TextureDimension::Texture2D;
 		TextureDescriptor.debugName = "Herta secondary viewport swapchain image";
-		TextureDescriptor.isShaderResource = false;
+		TextureDescriptor.isShaderResource = Viewport.bBackdropSampleSupported;
 		TextureDescriptor.isRenderTarget = true;
 		TextureDescriptor.enableAutomaticStateTracking(nvrhi::ResourceStates::Present);
 
@@ -2717,6 +2709,7 @@ private:
 		}
 
 		bBackdropCopySupported = (Capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+		bBackdropSampleSupported = (Capabilities.supportedUsageFlags & VK_IMAGE_USAGE_SAMPLED_BIT) != 0;
 
 		std::uint32_t FormatCount = 0;
 		Result = vkGetPhysicalDeviceSurfaceFormatsKHR(PhysicalDevice, Surface, &FormatCount, nullptr);
@@ -2779,7 +2772,7 @@ private:
 		SwapchainInfo.imageColorSpace = SurfaceFormat.colorSpace;
 		SwapchainInfo.imageExtent = {.width = Extent.Width, .height = Extent.Height};
 		SwapchainInfo.imageArrayLayers = 1;
-		SwapchainInfo.imageUsage = RequiredUsage | (bBackdropCopySupported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
+		SwapchainInfo.imageUsage = RequiredUsage | (bBackdropCopySupported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0) | (bBackdropSampleSupported ? VK_IMAGE_USAGE_SAMPLED_BIT : 0);
 		SwapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		SwapchainInfo.preTransform = Capabilities.currentTransform;
 		SwapchainInfo.compositeAlpha = ChooseCompositeAlpha(Capabilities.supportedCompositeAlpha);
@@ -2811,7 +2804,7 @@ private:
 		TextureDescriptor.format = NvrhiFormat;
 		TextureDescriptor.dimension = nvrhi::TextureDimension::Texture2D;
 		TextureDescriptor.debugName = "Herta swapchain image";
-		TextureDescriptor.isShaderResource = false;
+		TextureDescriptor.isShaderResource = bBackdropSampleSupported;
 		TextureDescriptor.isRenderTarget = true;
 		TextureDescriptor.enableAutomaticStateTracking(nvrhi::ResourceStates::Present);
 
@@ -2993,6 +2986,7 @@ private:
 	bool bFrameActive = false;
 	bool bFrameSuboptimal = false;
 	bool bBackdropCopySupported = false;
+	bool bBackdropSampleSupported = false;
 	bool bCaptureRequested = false;
 	std::optional<std::expected<FPresentationCapture, FPresentationError>> Capture;
 	nvrhi::ShaderHandle ToolUIVertexShader;

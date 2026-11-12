@@ -1659,7 +1659,18 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			std::string Output = std::format("{{\"windows\": {}, \"platformWindows\": {}, \"drawLists\": {}, \"drawCommands\": {}, \"vertices\": {}, \"indices\": {}", Frame.Windows, Frame.PlatformWindows, Frame.DrawLists, Frame.DrawCommands, Frame.Vertices, Frame.Indices);
 			Output += Gpu ? std::format(", \"uiGpuMs\": {:.4f}", *Gpu) : std::string(", \"uiGpuMs\": null");
 			const FFramePhases& Phases = LastFramePhases;
-			Output += std::format(", \"cpuMs\": {{\"total\": {:.3f}, \"render\": {:.3f}, \"acquire\": {:.3f}, \"ui\": {:.3f}, \"present\": {:.3f}}}}}", Phases.Total, Phases.Render, Phases.Acquire, Phases.ToolUI, Phases.Present);
+			Output += std::format(", \"cpuMs\": {{\"total\": {:.3f}, \"render\": {:.3f}, \"acquire\": {:.3f}, \"ui\": {:.3f}, \"present\": {:.3f}}}, \"heaviest\": [", Phases.Total, Phases.Render, Phases.Acquire, Phases.ToolUI, Phases.Present);
+			for (const FToolUIDrawListStats& List : Frame.Heaviest)
+			{
+				if (List.Indices > 0)
+				{
+					Output += Output.back() == '[' ? "{\"window\": " : ", {\"window\": ";
+					AppendJsonString(Output, List.Name.data());
+					Output += std::format(", \"commands\": {}, \"indices\": {}}}", List.Commands, List.Indices);
+				}
+			}
+
+			Output += "]}";
 			Automation->Respond(Stats->Id, Output);
 			Stats = UiStatsRequests.erase(Stats);
 		}
