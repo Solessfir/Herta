@@ -58,6 +58,8 @@ struct FOutlinerPanelState
 	std::vector<FOutlinerRow> VisibleRows;
 	// Measured by last frame's clipper; pinning the folders above the top row needs it before this frame's rows.
 	float RowHeight = 0.f;
+	// How many folders were pinned last frame; the scroll carries their height, so the rest of the list holds still while they pin.
+	int PinnedCount = 0;
 	std::set<FObjectId> CollapsedObjects;
 	std::set<FObjectId> CollapsedFolders;
 	std::optional<FOutlinerReparentRequest> ReparentRequest;

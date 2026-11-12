@@ -1093,36 +1093,28 @@ void RoundPanelCorners(ImDrawList& DrawList, const ImVec2 Minimum, const ImVec2 
 
 	struct FCorner
 	{
-		ImVec2 Point;
 		ImVec2 Center;
 		float FromAngle;
 	};
 
 	const std::array<FCorner, 4> Corners{{
-	    {.Point = Minimum, .Center = {Minimum.x + Radius, Minimum.y + Radius}, .FromAngle = Pi},
-	    {.Point = {Maximum.x, Minimum.y}, .Center = {Maximum.x - Radius, Minimum.y + Radius}, .FromAngle = 1.5f * Pi},
-	    {.Point = Maximum, .Center = {Maximum.x - Radius, Maximum.y - Radius}, .FromAngle = 0.f},
-	    {.Point = {Minimum.x, Maximum.y}, .Center = {Minimum.x + Radius, Maximum.y - Radius}, .FromAngle = 0.5f * Pi},
+	    {.Center = {Minimum.x + Radius, Minimum.y + Radius}, .FromAngle = Pi},
+	    {.Center = {Maximum.x - Radius, Minimum.y + Radius}, .FromAngle = 1.5f * Pi},
+	    {.Center = {Maximum.x - Radius, Maximum.y - Radius}, .FromAngle = 0.f},
+	    {.Center = {Minimum.x + Radius, Maximum.y - Radius}, .FromAngle = 0.5f * Pi},
 	}};
 
-	// Every ray from the corner crosses the arc once, so a fan from the corner fills exactly the area outside it.
-	constexpr int Segments = 12;
+	// One thick anti-aliased stroke per corner covers everything between the arc and the corner: its inner edge lies on the arc and gets
+	// ImGui's smooth fringe, and its outer edge reaches past the corner, where the panel's clip rect cuts it off. A fan of triangles
+	// leaves a hard, stepped edge instead.
+	const float Width = Radius * (std::numbers::sqrt2_v<float> - 1.f) + 2.f;
+	const int Segments = std::clamp(static_cast<int>(std::ceil(Radius * 2.f)), 12, 48);
 	const ImU32 Color = ToImGuiPackedColor(ToolUITheme::TitleBar);
-	DrawList.PushClipRect(Minimum, Maximum, false);
+	DrawList.PushClipRect(Minimum, Maximum, true);
 	for (const FCorner& Corner : Corners)
 	{
-		ImVec2 Previous{Corner.Center.x + std::cos(Corner.FromAngle) * Radius, Corner.Center.y + std::sin(Corner.FromAngle) * Radius};
-		for (int Segment = 1; Segment <= Segments; ++Segment)
-		{
-			const float Angle = Corner.FromAngle + 0.5f * Pi * static_cast<float>(Segment) / static_cast<float>(Segments);
-			const ImVec2 Next{Corner.Center.x + std::cos(Angle) * Radius, Corner.Center.y + std::sin(Angle) * Radius};
-			DrawList.AddTriangleFilled(Corner.Point, Previous, Next, Color);
-			Previous = Next;
-		}
-
-		// The fan's edge is hard; a thin stroke along the arc smooths it.
-		DrawList.PathArcTo(Corner.Center, Radius - 0.5f, Corner.FromAngle, Corner.FromAngle + 0.5f * Pi, Segments);
-		DrawList.PathStroke(Color, ImDrawFlags_None, 1.f);
+		DrawList.PathArcTo(Corner.Center, Radius + Width * 0.5f, Corner.FromAngle, Corner.FromAngle + 0.5f * Pi, Segments);
+		DrawList.PathStroke(Color, ImDrawFlags_None, Width);
 	}
 
 	DrawList.PopClipRect();

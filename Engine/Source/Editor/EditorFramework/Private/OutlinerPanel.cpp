@@ -586,14 +586,16 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6.f * Scale, 8.f * Scale});
 		ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, {0, 0, 0, 0});
 		ImGui::PushStyleColor(ImGuiCol_TableBorderLight, {1, 1, 1, 0.08f});
-		if (ImGui::BeginTable("##OutlinerObjects", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_ScrollY))
+		// The folders holding the top row pin under the header as frozen rows. Frozen rows push the scrolled rows down, so the scroll grows by
+		// their height to cancel that: the list holds still, and a pinned folder covers the row it now sits over. The top row comes from the
+		// scroll without them.
+		std::vector<int> StickyRows;
+		const ImGuiTable* const Previous = ImGui::TableFindByID(ImGui::GetID("##OutlinerObjects"));
+		if (Previous && Previous->InnerWindow && State.RowHeight > 0.f)
 		{
-			ImGui::TableSetupColumn("Item Label", ImGuiTableColumnFlags_WidthStretch);
-			ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 105.f * ImGui::GetFontSize() / 15.f);
-
-			// The folders holding the top row pin under the header as frozen rows. Those push the scrolled rows down rather than cover them, so the top row does not depend on how many are pinned.
-			std::vector<int> StickyRows;
-			const int TopRow = State.RowHeight > 0.f ? static_cast<int>(ImGui::GetScrollY() / State.RowHeight) : 0;
+			const float Scroll = Previous->InnerWindow->Scroll.y;
+			const float ListScroll = std::max(0.f, Scroll - static_cast<float>(State.PinnedCount) * State.RowHeight);
+			const int TopRow = static_cast<int>(ListScroll / State.RowHeight);
 			if (TopRow > 0 && TopRow < static_cast<int>(State.VisibleRows.size()))
 			{
 				int Depth = State.VisibleRows[static_cast<std::size_t>(TopRow)].Depth;
@@ -610,6 +612,18 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 					}
 				}
 			}
+
+			if (static_cast<int>(StickyRows.size()) != State.PinnedCount)
+			{
+				ImGui::SetNextWindowScroll({-1.f, ListScroll + static_cast<float>(StickyRows.size()) * State.RowHeight});
+			}
+		}
+
+		State.PinnedCount = static_cast<int>(StickyRows.size());
+		if (ImGui::BeginTable("##OutlinerObjects", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_ScrollY))
+		{
+			ImGui::TableSetupColumn("Item Label", ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 105.f * ImGui::GetFontSize() / 15.f);
 
 			ImGui::TableSetupScrollFreeze(0, 1 + static_cast<int>(StickyRows.size()));
 			ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
@@ -984,7 +998,12 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 				}
 			}
 
-			State.RowHeight = std::max(Clipper.ItemsHeight, 0.f);
+			// Pinned rows shift the measurement by a fraction of a pixel, which would move the top row across a boundary and flicker the
+			// pin, so the height is taken only while nothing is pinned.
+			if (StickyRows.empty() || State.RowHeight <= 0.f)
+			{
+				State.RowHeight = std::max(Clipper.ItemsHeight, 0.f);
+			}
 
 			ImGui::EndTable();
 		}

@@ -1006,7 +1006,7 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 	}
 
 	// Clicks and typing can do anything the user can, such as saving or deleting, so they need a session that allows writes.
-	if ((Tool == "ui_click" || Tool == "ui_type" || Tool == "ui_drag" || Tool == "ui_scroll") && !Server.AllowsWrites())
+	if ((Tool == "ui_click" || Tool == "ui_type" || Tool == "ui_drag" || Tool == "ui_scroll" || Tool == "panel_float") && !Server.AllowsWrites())
 	{
 		Server.Fail(Request.Id, "read_only", "UI input can change files and the level; start the editor with --automation=write");
 		return true;
@@ -1078,6 +1078,18 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 
 		Editor.ToolUI->QueueDrag(From->Bounds.X + From->Bounds.Width * 0.5f, From->Bounds.Y + From->Bounds.Height * 0.5f, To->Bounds.X + To->Bounds.Width * 0.5f, To->Bounds.Y + To->Bounds.Height * 0.5f);
 		Editor.AutomationUiReplies.push_back({.Id = Request.Id, .FramesLeft = 14, .Output = "{\"dragged\": true}"});
+		return true;
+	}
+
+	if (Tool == "panel_float")
+	{
+		const auto Number = [&Arguments](const char* const Name)
+		{
+			return static_cast<float>(Arguments.Number(Name, 0.));
+		};
+
+		Editor.ToolUI->FloatPanel(Arguments.Text("name"), {.X = Number("x"), .Y = Number("y"), .Width = std::max(Number("width"), 64.f), .Height = std::max(Number("height"), 64.f)});
+		Editor.AutomationUiReplies.push_back({.Id = Request.Id, .FramesLeft = 6, .Output = "{\"floated\": true}"});
 		return true;
 	}
 
