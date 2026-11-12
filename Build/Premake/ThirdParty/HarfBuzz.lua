@@ -17,4 +17,10 @@ function HertaHarfBuzz()
         rtti "Off"
         files { path.join(HarfBuzzRoot, "harfbuzz.cc") }
         includedirs { HarfBuzzRoot }
+
+        -- Debug builds of the amalgamation emit more sections than a COFF object holds by default.
+        filter "system:windows"
+            buildoptions { "/bigobj" }
+
+        filter {}
 end
