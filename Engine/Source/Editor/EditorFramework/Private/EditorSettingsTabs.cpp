@@ -297,7 +297,7 @@ void FEditorFramework::FImplementation::DrawProjectSettingsTab()
 	    {.Label = T(Editor::ProjectSettings_Content), .Detail = std::to_string(State.Draft.ContentRoots.size())},
 	}};
 
-	const bool bDirty = State.bLoaded && (State.Draft.Name != State.Saved.Name || State.Draft.StartingLevel != State.Saved.StartingLevel);
+	const bool bDirty = State.bLoaded && State.Draft != State.Saved;
 	const std::string TabLabel = std::format("{}{}###ProjectSettings", Localization.Format(Editor::Menu_ProjectSettings), bDirty ? "*" : "");
 	if (!BeginSettingsPage(*ToolUI, TabLabel, EToolUIMenuIcon::Settings, bProjectSettingsOpen, Sections, State.Section))
 	{
@@ -306,20 +306,38 @@ void FEditorFramework::FImplementation::DrawProjectSettingsTab()
 
 	const float Scale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
 	DrawSettingsTitle(Sections[static_cast<std::size_t>(State.Section)].Label);
-	if (State.Section == 0 && State.bLoaded)
+	if (State.bLoaded)
 	{
 		const std::string SaveLabel = T(Editor::ProjectSettings_Save);
+		const std::string RevertLabel = T(Editor::ProjectSettings_Revert);
 		const float SaveWidth = ImGui::CalcTextSize(SaveLabel.c_str()).x + 44.f * Scale;
-		ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - SaveWidth);
+		const float RevertWidth = ImGui::CalcTextSize(RevertLabel.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.f;
+		ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - SaveWidth - RevertWidth - ImGui::GetStyle().ItemSpacing.x);
+		ImGui::BeginDisabled(!bDirty);
+		if (ImGui::Button((RevertLabel + "###RevertProject").c_str()))
+		{
+			State.Draft = State.Saved;
+			State.Message.clear();
+		}
+
+		ImGui::SameLine();
+		ImGui::EndDisabled();
 		ImGui::BeginDisabled(!bDirty || State.Draft.Name.empty());
-		if (ToolUIButton(SaveLabel + "###SaveProject", EToolUIMenuIcon::Save) || (bDirty && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteFocused)))
+		if (ToolUIButton(SaveLabel, EToolUIMenuIcon::Save) || (bDirty && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteFocused)))
 		{
 			State.Message.clear();
+			State.bMessageIsError = true;
 			// The descriptor is replaced in one rename, so a failed write leaves the old one in place.
 			const std::filesystem::path Temporary = State.Path.string() + ".tmp";
 			const auto Text = SerializeProject(State.Draft);
 			bool bWritten = false;
-			if (Text)
+			std::error_code Error;
+			const std::string& ContentPath = State.Draft.ContentRoots.empty() ? std::string{} : State.Draft.ContentRoots.front().Path;
+			if (Text && !std::filesystem::is_directory(State.Path.parent_path() / ContentPath, Error))
+			{
+				State.Message = Localization.Format(Editor::ProjectSettings_ContentPathMissing, std::array{FMessageArgument{"path", ContentPath}});
+			}
+			else if (Text)
 			{
 				std::ofstream File(Temporary, std::ios::binary | std::ios::trunc);
 				File << *Text;
@@ -329,9 +347,16 @@ void FEditorFramework::FImplementation::DrawProjectSettingsTab()
 
 			if (bWritten)
 			{
+				// Modules and targets reach the build only through regenerated project files.
+				if (State.Draft.Modules != State.Saved.Modules || State.Draft.Targets != State.Saved.Targets)
+				{
+					State.Message = T(Editor::ProjectSettings_Regenerate);
+					State.bMessageIsError = false;
+				}
+
 				State.Saved = State.Draft;
 			}
-			else
+			else if (State.Message.empty())
 			{
 				State.Message = Text ? Localization.Format(Editor::ProjectSettings_WriteFailed, std::array{FMessageArgument{"path", State.Path.string()}}) : Text.error().Message;
 			}
@@ -343,9 +368,47 @@ void FEditorFramework::FImplementation::DrawProjectSettingsTab()
 	if (!State.Message.empty())
 	{
 		ImGui::PushTextWrapPos(0.f);
-		ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(PackColor(ToolUITheme::Error)), "%s", State.Message.c_str());
+		ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(PackColor(State.bMessageIsError ? ToolUITheme::Error : ToolUITheme::TextMuted)), "%s", State.Message.c_str());
 		ImGui::PopTextWrapPos();
 	}
+
+	// A row of chips, one per choice, lit while the choice is in the list; clicking adds or removes it, keeping the list in choice order.
+	const auto DrawToggleChips = [Scale](const std::span<const char* const> Choices, std::vector<std::string>& Chosen)
+	{
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4.f * Scale, 4.f * Scale});
+		ImGui::Dummy({0.f, 0.f});
+		for (std::size_t Index = 0; Index < Choices.size(); ++Index)
+		{
+			const bool bOn = std::ranges::contains(Chosen, std::string_view(Choices[Index]));
+			const float Width = ImGui::CalcTextSize(Choices[Index]).x + 18.f * Scale;
+			if (Index > 0 && ImGui::GetItemRectMax().x + 4.f * Scale + Width <= ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
+			{
+				ImGui::SameLine();
+			}
+
+			if (ToolUIChip(Choices[Index], bOn))
+			{
+				if (bOn)
+				{
+					std::erase(Chosen, Choices[Index]);
+				}
+				else
+				{
+					Chosen.emplace_back(Choices[Index]);
+					std::ranges::stable_sort(Chosen, {}, [&Choices](const std::string& Name)
+					{
+						return std::ranges::find(Choices, Name, [](const char* const Choice)
+						{
+							return std::string_view(Choice);
+						}) - Choices.begin();
+					});
+				}
+			}
+		}
+
+		ImGui::PopStyleVar();
+		ImGui::Dummy({0.f, 6.f * Scale});
+	};
 
 	const auto ReadOnlyRow = [](const std::string_view Label, const std::string_view Hint, const std::string& Value)
 	{
@@ -376,38 +439,46 @@ void FEditorFramework::FImplementation::DrawProjectSettingsTab()
 	}
 	else if (State.Section == 1)
 	{
+		// A module's name fixes its Source folder, so only what it includes is edited here; the descriptor accepts these engine modules.
+		constexpr std::array<const char*, 5> EngineModules{"Core", "Math", "Assets", "Level", "GameFramework"};
 		DrawSettingsHeading(T(Editor::ProjectSettings_GameModules));
-		for (const FProjectModule& Module : State.Draft.Modules)
+		for (FProjectModule& Module : State.Draft.Modules)
 		{
-			std::string Dependencies;
-			for (const std::string& Dependency : Module.Dependencies)
-			{
-				Dependencies += (Dependencies.empty() ? "" : ", ") + Dependency;
-			}
-
-			ReadOnlyRow(Module.Name, Dependencies.empty() ? std::string{} : Localization.Format(Editor::ProjectSettings_DependsOn, std::array{FMessageArgument{"modules", Dependencies}}), Module.Source);
+			ImGui::PushID(Module.Name.c_str());
+			ReadOnlyRow(Module.Name, T(Editor::ProjectSettings_Dependencies), Module.Source);
+			DrawToggleChips(EngineModules, Module.Dependencies);
+			ImGui::PopID();
 		}
 	}
 	else if (State.Section == 2)
 	{
-		DrawSettingsHeading(T(Editor::ProjectSettings_BuildTargets));
-		for (const FProjectTarget& Target : State.Draft.Targets)
+		std::vector<const char*> ModuleNames;
+		for (const FProjectModule& Module : State.Draft.Modules)
 		{
-			std::string Modules;
-			for (const std::string& Module : Target.Modules)
-			{
-				Modules += (Modules.empty() ? "" : ", ") + Module;
-			}
+			ModuleNames.push_back(Module.Name.c_str());
+		}
 
-			ReadOnlyRow(Target.Name, Modules, Target.Type);
+		DrawSettingsHeading(T(Editor::ProjectSettings_BuildTargets));
+		for (std::size_t Index = 0; Index < State.Draft.Targets.size(); ++Index)
+		{
+			FProjectTarget& Target = State.Draft.Targets[Index];
+			ImGui::PushID(static_cast<int>(Index));
+			BeginSettingsRow(T(Editor::ProjectSettings_TargetName), Target.Type);
+			ToolUIInputText("##TargetName", Target.Name, nullptr, ImGui::CalcItemWidth());
+			ImGui::TextDisabled("%s", T(Editor::ProjectSettings_TargetModules).c_str());
+			DrawToggleChips(ModuleNames, Target.Modules);
+			ImGui::PopID();
 		}
 	}
 	else
 	{
 		DrawSettingsHeading(T(Editor::ProjectSettings_ContentRoots));
-		for (const FProjectContentRoot& Root : State.Draft.ContentRoots)
+		for (FProjectContentRoot& Root : State.Draft.ContentRoots)
 		{
-			ReadOnlyRow(Root.Name, T(Editor::ProjectSettings_ContentRootHint), Root.Path);
+			ImGui::PushID(Root.Name.c_str());
+			BeginSettingsRow(Root.Name, T(Editor::ProjectSettings_ContentRootHint));
+			ToolUIInputText("##ContentPath", Root.Path, "Content", ImGui::CalcItemWidth());
+			ImGui::PopID();
 		}
 	}
 

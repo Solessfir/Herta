@@ -112,8 +112,11 @@ inline constexpr FTextId Prefs_UseSystemValues{"Editor.Prefs.UseSystemValues"};
 inline constexpr FTextId Prefs_VSyncHint{"Editor.Prefs.VSyncHint"};
 inline constexpr FTextId ProjectSettings_BuildTargets{"Editor.ProjectSettings.BuildTargets"};
 inline constexpr FTextId ProjectSettings_Content{"Editor.ProjectSettings.Content"};
+inline constexpr FTextId ProjectSettings_ContentPath{"Editor.ProjectSettings.ContentPath"};
+inline constexpr FTextId ProjectSettings_ContentPathMissing{"Editor.ProjectSettings.ContentPathMissing"};
 inline constexpr FTextId ProjectSettings_ContentRootHint{"Editor.ProjectSettings.ContentRootHint"};
 inline constexpr FTextId ProjectSettings_ContentRoots{"Editor.ProjectSettings.ContentRoots"};
+inline constexpr FTextId ProjectSettings_Dependencies{"Editor.ProjectSettings.Dependencies"};
 inline constexpr FTextId ProjectSettings_DependsOn{"Editor.ProjectSettings.DependsOn"};
 inline constexpr FTextId ProjectSettings_Descriptor{"Editor.ProjectSettings.Descriptor"};
 inline constexpr FTextId ProjectSettings_DescriptorHint{"Editor.ProjectSettings.DescriptorHint"};
@@ -129,9 +132,13 @@ inline constexpr FTextId ProjectSettings_Modules{"Editor.ProjectSettings.Modules
 inline constexpr FTextId ProjectSettings_Name{"Editor.ProjectSettings.Name"};
 inline constexpr FTextId ProjectSettings_NameHint{"Editor.ProjectSettings.NameHint"};
 inline constexpr FTextId ProjectSettings_NoProject{"Editor.ProjectSettings.NoProject"};
+inline constexpr FTextId ProjectSettings_Regenerate{"Editor.ProjectSettings.Regenerate"};
+inline constexpr FTextId ProjectSettings_Revert{"Editor.ProjectSettings.Revert"};
 inline constexpr FTextId ProjectSettings_Save{"Editor.ProjectSettings.Save"};
 inline constexpr FTextId ProjectSettings_StartingLevel{"Editor.ProjectSettings.StartingLevel"};
 inline constexpr FTextId ProjectSettings_StartingLevelHint{"Editor.ProjectSettings.StartingLevelHint"};
+inline constexpr FTextId ProjectSettings_TargetModules{"Editor.ProjectSettings.TargetModules"};
+inline constexpr FTextId ProjectSettings_TargetName{"Editor.ProjectSettings.TargetName"};
 inline constexpr FTextId ProjectSettings_Targets{"Editor.ProjectSettings.Targets"};
 inline constexpr FTextId ProjectSettings_WriteFailed{"Editor.ProjectSettings.WriteFailed"};
 }

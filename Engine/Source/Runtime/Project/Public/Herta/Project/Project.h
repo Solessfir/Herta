@@ -17,6 +17,8 @@ struct FProjectError
 
 struct FProjectModule
 {
+	[[nodiscard]] bool operator==(const FProjectModule&) const = default;
+
 	std::string Name{};
 	std::string Source{};
 	std::vector<std::string> Dependencies{};
@@ -24,6 +26,8 @@ struct FProjectModule
 
 struct FProjectTarget
 {
+	[[nodiscard]] bool operator==(const FProjectTarget&) const = default;
+
 	std::string Name{};
 	std::string Type{};
 	std::vector<std::string> Modules{};
@@ -31,12 +35,16 @@ struct FProjectTarget
 
 struct FProjectContentRoot
 {
+	[[nodiscard]] bool operator==(const FProjectContentRoot&) const = default;
+
 	std::string Name{};
 	std::string Path{};
 };
 
 struct FProjectDescriptor
 {
+	[[nodiscard]] bool operator==(const FProjectDescriptor&) const = default;
+
 	std::string Id{};
 	std::string Name{};
 	std::string EngineAssociation{};

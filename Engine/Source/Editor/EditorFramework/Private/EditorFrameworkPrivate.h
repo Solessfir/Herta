@@ -285,6 +285,8 @@ struct FProjectSettingsState
 	FProjectDescriptor Saved{};
 	FProjectDescriptor Draft{};
 	std::string Message{};
+	// A saved note, such as the reminder to regenerate project files, shows muted instead of as an error.
+	bool bMessageIsError = true;
 	int Section = 0;
 	bool bLoaded = false;
 };
