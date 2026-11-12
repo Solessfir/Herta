@@ -575,6 +575,9 @@ struct FEditorFramework::FImplementation
 	bool bPluginsOpen = false;
 	bool bPluginsFocusRequested = false;
 
+	// When the level was last saved this session, for the status bar.
+	std::optional<std::chrono::steady_clock::time_point> LastLevelSave;
+
 	// The command palette, open as a popup from Ctrl+K.
 	bool bCommandPaletteRequested = false;
 	std::array<char, 128> CommandPaletteQuery{};

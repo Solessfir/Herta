@@ -1093,6 +1093,7 @@ void FEditorFramework::FImplementation::SaveCurrentLevel()
 		return;
 	}
 
+	LastLevelSave = std::chrono::steady_clock::now();
 	HERTA_LOG_INFO(*Log, EditorLog, "Level saved");
 }
 }

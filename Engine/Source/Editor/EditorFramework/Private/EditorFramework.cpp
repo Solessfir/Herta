@@ -720,8 +720,13 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::Dummy({8.f * Scale, 20.f * Scale});
 		ImGui::SameLine(0.f, 3.f * Scale);
 		ImGui::AlignTextToFramePadding();
-		ImGui::TextDisabled(Implementation->bProjectBusy ? "Loading project..." : Implementation->Assets && Implementation->Assets->IsImporting() ? "Importing..."
-		                                                                                                                                          : "Ready");
+		// Whatever runs in the background names itself here; the dot is amber while anything does.
+		const char* const Work = Implementation->bProjectBusy                                             ? "Loading project..."
+		                         : Implementation->Assets && Implementation->Assets->IsImporting()        ? "Importing..."
+		                         : Implementation->Assets && Implementation->Assets->IsScanning()         ? "Scanning content..."
+		                         : Implementation->Navigation && Implementation->Navigation->IsBuilding() ? "Building navigation..."
+		                                                                                                  : nullptr;
+		ImGui::TextDisabled("%s", Work ? Work : "Ready");
 		if (Implementation->bProjectBusy)
 		{
 			ImGui::SameLine();
@@ -730,10 +735,44 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 				Implementation->ProjectCancellation.request_stop();
 			}
 		}
+
 		const float ReadyCenterY = (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f;
-		ImGui::GetWindowDrawList()->AddCircleFilled({DotPosition.x + 4.f * Scale, ReadyCenterY}, 2.5f * Scale, IM_COL32(164, 189, 148, 255));
-		ImGui::SameLine();
-		ImGui::TextDisabled("%zu objects", Implementation->PreviewObjects.size());
+		ImGui::GetWindowDrawList()->AddCircleFilled({DotPosition.x + 4.f * Scale, ReadyCenterY}, 2.5f * Scale, Work ? PackColor(ToolUITheme::Warning) : IM_COL32(164, 189, 148, 255));
+
+		// The right end says what Ctrl+Z would take back and whether the level is saved.
+		const std::string Undo = Implementation->Level->CanUndo() ? std::format("Undo: {}", Implementation->Level->GetUndoLabel()) : std::string{};
+		std::string Saved;
+		const bool bDirty = Implementation->Level->IsDirty();
+		if (bDirty)
+		{
+			Saved = "Unsaved changes";
+		}
+		else if (Implementation->LastLevelSave)
+		{
+			const auto Minutes = std::chrono::duration_cast<std::chrono::minutes>(std::chrono::steady_clock::now() - *Implementation->LastLevelSave).count();
+			Saved = Minutes < 1 ? "Saved just now" : std::format("Saved {} min ago", Minutes);
+		}
+
+		const float Gap = 18.f * Scale;
+		const float RightWidth = (Undo.empty() ? 0.f : ImGui::CalcTextSize(Undo.c_str()).x + Gap) + (Saved.empty() ? 0.f : ImGui::CalcTextSize(Saved.c_str()).x);
+		const float RightX = ImGui::GetWindowWidth() - RightWidth - 12.f * Scale;
+		if (RightWidth > 0.f && RightX > ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + Gap)
+		{
+			ImGui::SameLine(RightX);
+			if (!Undo.empty())
+			{
+				ImGui::TextDisabled("%s", Undo.c_str());
+				ImGui::SameLine(0.f, Gap);
+			}
+
+			if (!Saved.empty())
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, bDirty ? ImGui::ColorConvertU32ToFloat4(PackColor(ToolUITheme::Warning)) : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+				ImGui::TextUnformatted(Saved.c_str());
+				ImGui::PopStyleColor();
+			}
+		}
+
 		ImGui::PopStyleColor(3);
 		ImGui::PopStyleVar(3);
 	}, [&]
