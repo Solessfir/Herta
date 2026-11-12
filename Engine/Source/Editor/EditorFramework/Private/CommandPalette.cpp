@@ -1,5 +1,6 @@
 #include "EditorFrameworkPrivate.h"
 #include "Herta/Assets/AssetSearch.h"
+#include "Herta/ToolUI/EditorText.h"
 
 namespace Herta
 {
@@ -21,7 +22,9 @@ struct FPaletteRow
 	std::string_view Detail{};
 };
 
-constexpr std::array<std::string_view, 3> PaletteHeadings{"Entities", "Assets", "Commands"};
+namespace Editor = Text::Editor;
+
+constexpr std::array<FTextId, 3> PaletteHeadings{Editor::Palette_Entities, Editor::Palette_Assets, Editor::Palette_Commands};
 }
 
 void FEditorFramework::FImplementation::DrawCommandPalette()
@@ -30,6 +33,13 @@ void FEditorFramework::FImplementation::DrawCommandPalette()
 	if (!IO.AppFocusLost && IO.KeyMods == ImGuiMod_Ctrl && ImGui::IsKeyPressed(ImGuiKey_K, false) && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
 	{
 		bCommandPaletteRequested = true;
+	}
+
+	// The title bar box follows the editor's language; the generation moves when the culture or a catalog changes.
+	if (const std::uint64_t Generation = Localization.GetGeneration(); TitleSearchGeneration != Generation)
+	{
+		TitleSearchGeneration = Generation;
+		ToolUI->SetTitleSearch(Localization.Format(Editor::Palette_TitleHint), "Ctrl K");
 	}
 
 	bCommandPaletteRequested |= ToolUI->ConsumeTitleSearchClick();
@@ -64,7 +74,7 @@ void FEditorFramework::FImplementation::DrawCommandPalette()
 	}
 
 	ImGui::SetNextItemWidth(-1.f);
-	if (ToolUI->DrawSearchField("##PaletteQuery", "Search entities, assets, and commands", CommandPaletteQuery.data(), CommandPaletteQuery.size()))
+	if (ToolUI->DrawSearchField("##PaletteQuery", Localization.Format(Editor::Palette_Hint).c_str(), CommandPaletteQuery.data(), CommandPaletteQuery.size()))
 	{
 		CommandPaletteSelected = 0;
 	}
@@ -131,10 +141,9 @@ void FEditorFramework::FImplementation::DrawCommandPalette()
 		const FPaletteRow& Entry = Rows[static_cast<std::size_t>(Row)];
 		if (Row == 0 || Rows[static_cast<std::size_t>(Row - 1)].Kind != Entry.Kind)
 		{
-			const std::string_view Heading = PaletteHeadings[static_cast<std::size_t>(Entry.Kind)];
 			ImGui::Dummy({0.f, 3.f * Scale});
 			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 10.f * Scale);
-			ImGui::TextDisabled("%.*s", static_cast<int>(Heading.size()), Heading.data());
+			ImGui::TextDisabled("%s", Localization.Format(PaletteHeadings[static_cast<std::size_t>(Entry.Kind)]).c_str());
 		}
 
 		ImGui::PushID(Row);
@@ -165,14 +174,14 @@ void FEditorFramework::FImplementation::DrawCommandPalette()
 	if (Count == 0)
 	{
 		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 10.f * Scale);
-		ImGui::TextDisabled("Nothing matches.");
+		ImGui::TextDisabled("%s", Localization.Format(Editor::Palette_Empty).c_str());
 	}
 
 	ImGui::PopStyleVar(2);
 	ImGui::Dummy({0.f, 4.f * Scale});
 	ImGui::Separator();
 	ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 10.f * Scale);
-	ImGui::TextDisabled("Up and Down move, Enter selects, Esc closes");
+	ImGui::TextDisabled("%s", Localization.Format(Editor::Palette_Help).c_str());
 
 	if (Chosen >= 0)
 	{

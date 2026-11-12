@@ -12,7 +12,7 @@ struct FSettingsSection
 {
 	std::string Label{};
 	// A non-empty heading starts a group above this section.
-	std::string_view Heading{};
+	std::string Heading{};
 	// Shown at the right of the section's row, such as a count.
 	std::string Detail{};
 };

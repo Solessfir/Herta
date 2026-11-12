@@ -39,7 +39,7 @@ bool BeginSettingsPage(FToolUIContext& ToolUI, const std::string_view TabLabel, 
 		{
 			ImGui::Dummy({0.f, Index > 0 ? 8.f * Scale : 2.f * Scale});
 			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 10.f * Scale);
-			ImGui::TextDisabled("%.*s", static_cast<int>(Section.Heading.size()), Section.Heading.data());
+			ImGui::TextDisabled("%s", Section.Heading.c_str());
 		}
 
 		ImGui::PushID(Index);

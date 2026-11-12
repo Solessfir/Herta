@@ -74,7 +74,6 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 	Implementation->PollTextCatalogs(true);
 	Implementation->Localization.SetCulture(Descriptor.ToolUI->GetAppearance().Culture);
 	Descriptor.ToolUI->SetText(&Implementation->Localization);
-	Descriptor.ToolUI->SetTitleSearch("Search everything", "Ctrl K");
 	Implementation->RegisterUITexture = Descriptor.RegisterUITexture;
 	Implementation->UnregisterUITexture = Descriptor.UnregisterUITexture;
 	Implementation->ProjectPath = Descriptor.ProjectPath;
@@ -1097,7 +1096,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	Implementation->DrawPerformancePanel();
 	Implementation->DrawWorldSettingsPanel();
 	Implementation->DrawLocalizationPanel();
-	Implementation->Plugins->DrawManager(*Implementation->ToolUI, Implementation->bPluginsOpen, std::exchange(Implementation->bPluginsFocusRequested, false), Localization.Format(Editor::Menu_Plugins));
+	Implementation->Plugins->DrawManager(*Implementation->ToolUI, Implementation->bPluginsOpen, std::exchange(Implementation->bPluginsFocusRequested, false), Localization);
 	Implementation->DrawPreferencesTab();
 	Implementation->DrawProjectSettingsTab();
 	Implementation->DrawCommandPalette();

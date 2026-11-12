@@ -12,21 +12,21 @@ namespace
 {
 namespace Editor = Text::Editor;
 
-[[nodiscard]] constexpr const char* GetPanelTransparencyLabel(const EPanelTransparency Mode) noexcept
+[[nodiscard]] constexpr FTextId GetPanelTransparencyLabel(const EPanelTransparency Mode) noexcept
 {
 	switch (Mode)
 	{
 		case EPanelTransparency::AllPanels:
-			return "All panels";
+			return Editor::Prefs_AllPanels;
 		case EPanelTransparency::FloatingOnly:
-			return "Floating panels";
+			return Editor::Prefs_FloatingPanels;
 		case EPanelTransparency::DockedOnly:
-			return "Docked panels";
+			return Editor::Prefs_DockedPanels;
 		case EPanelTransparency::Disabled:
-			return "Opaque panels";
+			return Editor::Prefs_OpaquePanels;
 	}
 
-	return "All panels";
+	return Editor::Prefs_AllPanels;
 }
 
 // Percent sliders edit fractions the appearance stores from zero to one.
@@ -43,7 +43,12 @@ void DrawPercentRow(const std::string_view Label, const std::string_view Hint, c
 
 void FEditorFramework::FImplementation::DrawHdrDisplaySettings(FEditorDisplay& Display)
 {
-	BeginSettingsRow("HDR output", DisplayState.bHdrSupported ? "Present the editor in HDR10." : "This display does not offer HDR10. On Windows, turn on Use HDR in display settings.");
+	const auto T = [this](const FTextId Id)
+	{
+		return Localization.Format(Id);
+	};
+
+	BeginSettingsRow(T(Editor::Prefs_HdrOutput), T(DisplayState.bHdrSupported ? Editor::Prefs_HdrOutputHint : Editor::Prefs_HdrUnavailable));
 	ImGui::BeginDisabled(!DisplayState.bHdrSupported && !Display.bHdrOutput);
 	ToolUIToggle("##HdrOutput", &Display.bHdrOutput);
 	ImGui::EndDisabled();
@@ -54,24 +59,24 @@ void FEditorFramework::FImplementation::DrawHdrDisplaySettings(FEditorDisplay& D
 	}
 
 	float Peak = DisplayState.PeakLuminance;
-	BeginSettingsRow("Peak brightness", "The brightest highlight the display shows.");
+	BeginSettingsRow(T(Editor::Prefs_PeakBrightness), T(Editor::Prefs_PeakBrightnessHint));
 	if (DrawNumericSliderFloat("##HdrPeak", &Peak, MinimumHdrPeakLuminance, MaximumHdrPeakLuminance, Display.PeakLuminance > 0.f ? "%.0f nits" : "%.0f nits (system)", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
 	{
 		Display.PeakLuminance = Peak;
 	}
 
 	float PaperWhite = DisplayState.PaperWhite;
-	BeginSettingsRow("Paper white", "Brightness of white in the editor and of a white surface in the scene.");
+	BeginSettingsRow(T(Editor::Prefs_PaperWhite), T(Editor::Prefs_PaperWhiteHint));
 	if (DrawNumericSliderFloat("##HdrPaperWhite", &PaperWhite, MinimumHdrPaperWhite, MaximumHdrPaperWhite, Display.PaperWhite > 0.f ? "%.0f nits" : "%.0f nits (system)", ImGuiSliderFlags_AlwaysClamp))
 	{
 		Display.PaperWhite = PaperWhite;
 	}
 
-	BeginSettingsRow("Calibrate peak", "Shows a test pattern in the level viewport. Raise Peak brightness until the inner square disappears.");
+	BeginSettingsRow(T(Editor::Prefs_Calibrate), T(Editor::Prefs_CalibrateHint));
 	ToolUIToggle("##HdrCalibration", &bHdrCalibration);
-	BeginSettingsRow("System values", DisplayState.SystemPeakLuminance > 0.f ? "Follow the brightness the operating system reports for this display." : "The operating system reports no brightness here, so 200 and 1000 nits apply.");
+	BeginSettingsRow(T(Editor::Prefs_SystemValues), T(DisplayState.SystemPeakLuminance > 0.f ? Editor::Prefs_SystemValuesHint : Editor::Prefs_SystemValuesMissing));
 	ImGui::BeginDisabled(Display.PaperWhite == 0.f && Display.PeakLuminance == 0.f);
-	if (ImGui::Button("Use system values", {ImGui::CalcItemWidth(), 0.f}))
+	if (ImGui::Button(std::format("{}###UseSystemValues", T(Editor::Prefs_UseSystemValues)).c_str(), {ImGui::CalcItemWidth(), 0.f}))
 	{
 		Display.PaperWhite = 0.f;
 		Display.PeakLuminance = 0.f;
@@ -93,10 +98,15 @@ void FEditorFramework::FImplementation::DrawPreferencesTab()
 		ImGui::SetNextWindowFocus();
 	}
 
+	const auto T = [this](const FTextId Id)
+	{
+		return Localization.Format(Id);
+	};
+
 	const std::array<FSettingsSection, 3> Sections{{
-	    {.Label = "Appearance", .Heading = "Editor"},
-	    {.Label = Localization.Format(Editor::Menu_Language)},
-	    {.Label = "Display"},
+	    {.Label = T(Editor::Prefs_Appearance), .Heading = T(Editor::Prefs_Editor)},
+	    {.Label = T(Editor::Menu_Language)},
+	    {.Label = T(Editor::Prefs_Display)},
 	}};
 
 	const std::string TabLabel = Localization.Format(Editor::Menu_Preferences) + "###Preferences";
@@ -111,9 +121,10 @@ void FEditorFramework::FImplementation::DrawPreferencesTab()
 	DrawSettingsTitle(Sections[static_cast<std::size_t>(PreferencesSection)].Label);
 	if (PreferencesSection == 0)
 	{
-		const float ResetWidth = ImGui::CalcTextSize("Reset").x + ImGui::GetStyle().FramePadding.x * 2.f;
+		const std::string ResetLabel = T(Editor::Prefs_Reset);
+		const float ResetWidth = ImGui::CalcTextSize(ResetLabel.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.f;
 		ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ResetWidth);
-		if (ImGui::Button("Reset"))
+		if (ImGui::Button((ResetLabel + "###ResetAppearance").c_str()))
 		{
 			// Display settings describe the monitor and the language the reader, not the look, so they survive a reset.
 			FEditorAppearance Defaults{};
@@ -122,14 +133,14 @@ void FEditorFramework::FImplementation::DrawPreferencesTab()
 			Appearance = std::move(Defaults);
 		}
 
-		ImGui::SetItemTooltip("Restore the default appearance");
-		DrawSettingsHeading("Panels");
-		BeginSettingsRow("Transparency", "Which panels let the scene show through.");
-		if (ImGui::BeginCombo("##PanelTransparency", GetPanelTransparencyLabel(Appearance.PanelTransparency)))
+		ImGui::SetItemTooltip("%s", T(Editor::Prefs_ResetTip).c_str());
+		DrawSettingsHeading(T(Editor::Prefs_Panels));
+		BeginSettingsRow(T(Editor::Prefs_Transparency), T(Editor::Prefs_TransparencyHint));
+		if (ImGui::BeginCombo("##PanelTransparency", T(GetPanelTransparencyLabel(Appearance.PanelTransparency)).c_str()))
 		{
 			for (const EPanelTransparency Mode : {EPanelTransparency::AllPanels, EPanelTransparency::FloatingOnly, EPanelTransparency::DockedOnly, EPanelTransparency::Disabled})
 			{
-				if (ImGui::Selectable(GetPanelTransparencyLabel(Mode), Appearance.PanelTransparency == Mode))
+				if (ImGui::Selectable(T(GetPanelTransparencyLabel(Mode)).c_str(), Appearance.PanelTransparency == Mode))
 				{
 					Appearance.PanelTransparency = Mode;
 				}
@@ -138,18 +149,18 @@ void FEditorFramework::FImplementation::DrawPreferencesTab()
 			ImGui::EndCombo();
 		}
 
-		DrawPercentRow("Opacity", "How solid a transparent panel is.", "##Opacity", Appearance.PanelOpacity);
-		BeginSettingsRow("Blur", "Backdrop blur behind transparent panels.");
+		DrawPercentRow(T(Editor::Prefs_Opacity), T(Editor::Prefs_OpacityHint), "##Opacity", Appearance.PanelOpacity);
+		BeginSettingsRow(T(Editor::Prefs_Blur), T(Editor::Prefs_BlurHint));
 		DrawNumericSliderFloat("##Blur", &Appearance.BlurRadius, 0.f, 40.f, "%.0f px", ImGuiSliderFlags_AlwaysClamp);
 
-		DrawSettingsHeading("Color");
+		DrawSettingsHeading(T(Editor::Prefs_Color));
 		std::array Color = {
 		    static_cast<float>(Appearance.Accent.Red) / 255.f,
 		    static_cast<float>(Appearance.Accent.Green) / 255.f,
 		    static_cast<float>(Appearance.Accent.Blue) / 255.f,
 		};
 
-		BeginSettingsRow("Accent", "Tints the window gradient.");
+		BeginSettingsRow(T(Editor::Prefs_Accent), T(Editor::Prefs_AccentHint));
 		if (ImGui::ColorEdit3("##AccentColor", Color.data()))
 		{
 			Appearance.Accent.Red = static_cast<std::uint8_t>(std::lround(Color[0] * 255.f));
@@ -180,9 +191,9 @@ void FEditorFramework::FImplementation::DrawPreferencesTab()
 			ImGui::PopID();
 		}
 
-		DrawPercentRow("Gradient height", "How far the accent tint reaches down the window.", "##GradientHeight", Appearance.GradientHeight);
-		DrawPercentRow("Saturation", "How vivid the tint is.", "##Saturation", Appearance.Saturation);
-		DrawPercentRow("Intensity", "How strongly the tint shows over the dark frame.", "##Intensity", Appearance.Intensity);
+		DrawPercentRow(T(Editor::Prefs_GradientHeight), T(Editor::Prefs_GradientHeightHint), "##GradientHeight", Appearance.GradientHeight);
+		DrawPercentRow(T(Editor::Prefs_Saturation), T(Editor::Prefs_SaturationHint), "##Saturation", Appearance.Saturation);
+		DrawPercentRow(T(Editor::Prefs_Intensity), T(Editor::Prefs_IntensityHint), "##Intensity", Appearance.Intensity);
 	}
 	else if (PreferencesSection == 1)
 	{
@@ -219,15 +230,15 @@ void FEditorFramework::FImplementation::DrawPreferencesTab()
 	}
 	else
 	{
-		DrawSettingsHeading("Presentation");
+		DrawSettingsHeading(T(Editor::Prefs_Presentation));
 		bool bVSync = ToolUI->IsVSyncEnabled();
-		BeginSettingsRow(Localization.Format(Editor::Menu_VSync), "Present frames in step with the display's refresh.");
+		BeginSettingsRow(T(Editor::Menu_VSync), T(Editor::Prefs_VSyncHint));
 		if (ToolUIToggle("##VSync", &bVSync))
 		{
 			ToolUI->SetVSyncEnabled(bVSync);
 		}
 
-		DrawSettingsHeading("HDR");
+		DrawSettingsHeading(T(Editor::Prefs_Hdr));
 		DrawHdrDisplaySettings(Appearance.Display);
 	}
 
@@ -253,13 +264,18 @@ void FEditorFramework::FImplementation::DrawProjectSettingsTab()
 		ImGui::SetNextWindowFocus();
 	}
 
+	const auto T = [this](const FTextId Id)
+	{
+		return Localization.Format(Id);
+	};
+
 	// The tab edits a copy of the descriptor on disk, read when it opens or the project changes.
 	if (!ProjectSettings || ProjectSettings->Path != ProjectPath)
 	{
 		ProjectSettings = FProjectSettingsState{.Path = ProjectPath};
 		if (ProjectPath.empty())
 		{
-			ProjectSettings->Message = "No project is open. The level was opened on its own.";
+			ProjectSettings->Message = T(Editor::ProjectSettings_NoProject);
 		}
 		else if (auto Loaded = LoadProject(ProjectPath))
 		{
@@ -275,10 +291,10 @@ void FEditorFramework::FImplementation::DrawProjectSettingsTab()
 
 	FProjectSettingsState& State = *ProjectSettings;
 	const std::array<FSettingsSection, 4> Sections{{
-	    {.Label = "General", .Heading = "Project"},
-	    {.Label = "Modules", .Detail = std::to_string(State.Draft.Modules.size())},
-	    {.Label = "Targets", .Detail = std::to_string(State.Draft.Targets.size())},
-	    {.Label = "Content", .Detail = std::to_string(State.Draft.ContentRoots.size())},
+	    {.Label = T(Editor::ProjectSettings_General), .Heading = T(Editor::ProjectSettings_Heading)},
+	    {.Label = T(Editor::ProjectSettings_Modules), .Detail = std::to_string(State.Draft.Modules.size())},
+	    {.Label = T(Editor::ProjectSettings_Targets), .Detail = std::to_string(State.Draft.Targets.size())},
+	    {.Label = T(Editor::ProjectSettings_Content), .Detail = std::to_string(State.Draft.ContentRoots.size())},
 	}};
 
 	const bool bDirty = State.bLoaded && (State.Draft.Name != State.Saved.Name || State.Draft.StartingLevel != State.Saved.StartingLevel);
@@ -292,10 +308,11 @@ void FEditorFramework::FImplementation::DrawProjectSettingsTab()
 	DrawSettingsTitle(Sections[static_cast<std::size_t>(State.Section)].Label);
 	if (State.Section == 0 && State.bLoaded)
 	{
-		const float SaveWidth = ImGui::CalcTextSize("Save").x + 44.f * Scale;
+		const std::string SaveLabel = T(Editor::ProjectSettings_Save);
+		const float SaveWidth = ImGui::CalcTextSize(SaveLabel.c_str()).x + 44.f * Scale;
 		ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - SaveWidth);
 		ImGui::BeginDisabled(!bDirty || State.Draft.Name.empty());
-		if (ToolUIButton("Save", EToolUIMenuIcon::Save) || (bDirty && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteFocused)))
+		if (ToolUIButton(SaveLabel + "###SaveProject", EToolUIMenuIcon::Save) || (bDirty && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteFocused)))
 		{
 			State.Message.clear();
 			// The descriptor is replaced in one rename, so a failed write leaves the old one in place.
@@ -316,7 +333,7 @@ void FEditorFramework::FImplementation::DrawProjectSettingsTab()
 			}
 			else
 			{
-				State.Message = Text ? "Could not write " + State.Path.string() : Text.error().Message;
+				State.Message = Text ? Localization.Format(Editor::ProjectSettings_WriteFailed, std::array{FMessageArgument{"path", State.Path.string()}}) : Text.error().Message;
 			}
 		}
 
@@ -348,32 +365,32 @@ void FEditorFramework::FImplementation::DrawProjectSettingsTab()
 
 	if (State.Section == 0)
 	{
-		DrawSettingsHeading("Identity");
-		BeginSettingsRow("Name", "Shown in the title bar and in packaged builds.");
+		DrawSettingsHeading(T(Editor::ProjectSettings_Identity));
+		BeginSettingsRow(T(Editor::ProjectSettings_Name), T(Editor::ProjectSettings_NameHint));
 		ToolUIInputText("##ProjectName", State.Draft.Name, nullptr, ImGui::CalcItemWidth());
-		BeginSettingsRow("Starting level", "Opened by the editor and played first by the game, relative to the project.");
+		BeginSettingsRow(T(Editor::ProjectSettings_StartingLevel), T(Editor::ProjectSettings_StartingLevelHint));
 		ToolUIInputText("##StartingLevel", State.Draft.StartingLevel, "Levels/Level.hlevel", ImGui::CalcItemWidth());
-		ReadOnlyRow("Engine", "The engine checkout this project builds against.", State.Draft.EngineAssociation);
-		ReadOnlyRow("Project ID", "Stable identity, written when the project was created.", State.Draft.Id);
-		ReadOnlyRow("Descriptor", "The file these settings are saved to.", State.Path.generic_string());
+		ReadOnlyRow(T(Editor::ProjectSettings_Engine), T(Editor::ProjectSettings_EngineHint), State.Draft.EngineAssociation);
+		ReadOnlyRow(T(Editor::ProjectSettings_Id), T(Editor::ProjectSettings_IdHint), State.Draft.Id);
+		ReadOnlyRow(T(Editor::ProjectSettings_Descriptor), T(Editor::ProjectSettings_DescriptorHint), State.Path.generic_string());
 	}
 	else if (State.Section == 1)
 	{
-		DrawSettingsHeading("Game modules");
+		DrawSettingsHeading(T(Editor::ProjectSettings_GameModules));
 		for (const FProjectModule& Module : State.Draft.Modules)
 		{
 			std::string Dependencies;
 			for (const std::string& Dependency : Module.Dependencies)
 			{
-				Dependencies += (Dependencies.empty() ? "Depends on " : ", ") + Dependency;
+				Dependencies += (Dependencies.empty() ? "" : ", ") + Dependency;
 			}
 
-			ReadOnlyRow(Module.Name, Dependencies, Module.Source);
+			ReadOnlyRow(Module.Name, Dependencies.empty() ? std::string{} : Localization.Format(Editor::ProjectSettings_DependsOn, std::array{FMessageArgument{"modules", Dependencies}}), Module.Source);
 		}
 	}
 	else if (State.Section == 2)
 	{
-		DrawSettingsHeading("Build targets");
+		DrawSettingsHeading(T(Editor::ProjectSettings_BuildTargets));
 		for (const FProjectTarget& Target : State.Draft.Targets)
 		{
 			std::string Modules;
@@ -387,10 +404,10 @@ void FEditorFramework::FImplementation::DrawProjectSettingsTab()
 	}
 	else
 	{
-		DrawSettingsHeading("Content roots");
+		DrawSettingsHeading(T(Editor::ProjectSettings_ContentRoots));
 		for (const FProjectContentRoot& Root : State.Draft.ContentRoots)
 		{
-			ReadOnlyRow(Root.Name, "Mounted under this name in the Content Browser.", Root.Path);
+			ReadOnlyRow(Root.Name, T(Editor::ProjectSettings_ContentRootHint), Root.Path);
 		}
 	}
 

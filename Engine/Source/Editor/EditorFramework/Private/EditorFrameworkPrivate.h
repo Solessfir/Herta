@@ -585,6 +585,8 @@ struct FEditorFramework::FImplementation
 
 	// The command palette, open as a popup from Ctrl+K.
 	bool bCommandPaletteRequested = false;
+	// The localization generation the title bar search hint was last set in; unset until the first frame.
+	std::optional<std::uint64_t> TitleSearchGeneration;
 	std::array<char, 128> CommandPaletteQuery{};
 	int CommandPaletteSelected = 0;
 	std::vector<FEditorCommandInfo> CommandPaletteCommands;

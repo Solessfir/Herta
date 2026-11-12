@@ -13,6 +13,7 @@
 
 namespace Herta
 {
+class FLocalization;
 class FEditorCommandRegistry;
 class FLogService;
 class FTaskScope;
@@ -55,8 +56,8 @@ public:
 	[[nodiscard]] bool HasToolsMenuItems() const noexcept;
 	// What plugins show in the status bar this frame, in registration order, without the empty ones.
 	[[nodiscard]] std::vector<std::string> GetStatusTexts() const;
-	// The Plugins tab. TabTitle is its localized name.
-	void DrawManager(FToolUIContext& ToolUI, bool& bOpen, bool bFocus, std::string_view TabTitle);
+	// The Plugins tab, in the editor's language.
+	void DrawManager(FToolUIContext& ToolUI, bool& bOpen, bool bFocus, const FLocalization& Text);
 
 	[[nodiscard]] bool IsSafeMode() const noexcept;
 	[[nodiscard]] std::vector<std::string> GetLoadedNames() const;
