@@ -110,14 +110,16 @@ struct FToolUIColorPreset
 
 namespace ToolUITheme
 {
-inline constexpr FToolUIColor Canvas{25, 25, 25, 255};
-inline constexpr FToolUIColor TitleBar{27, 27, 27, 255};
-inline constexpr FToolUIColor Surface0{23, 23, 23, 255};
-inline constexpr FToolUIColor Surface1{28, 28, 28, 255};
-inline constexpr FToolUIColor Surface2{36, 36, 36, 255};
-inline constexpr FToolUIColor SurfaceHover{44, 44, 44, 255};
-inline constexpr FToolUIColor Border{52, 52, 52, 255};
-inline constexpr FToolUIColor BorderSoft{37, 37, 37, 255};
+// Three value layers keep the layout readable: the canvas between panels and behind the window chrome is darkest, panels sit a step
+// above it, and fields are inset below the panel while buttons, headers, and selected tabs rise above it.
+inline constexpr FToolUIColor Canvas{9, 9, 10, 255};
+inline constexpr FToolUIColor TitleBar{12, 12, 13, 255};
+inline constexpr FToolUIColor Surface0{22, 22, 23, 255};
+inline constexpr FToolUIColor Surface1{14, 14, 15, 255};
+inline constexpr FToolUIColor Surface2{32, 32, 34, 255};
+inline constexpr FToolUIColor SurfaceHover{42, 42, 45, 255};
+inline constexpr FToolUIColor Border{48, 48, 51, 255};
+inline constexpr FToolUIColor BorderSoft{32, 32, 34, 255};
 inline constexpr FToolUIColor TextPrimary{255, 255, 255, 255};
 inline constexpr FToolUIColor TextSecondary{190, 190, 193, 255};
 inline constexpr FToolUIColor TextMuted{148, 148, 152, 255};

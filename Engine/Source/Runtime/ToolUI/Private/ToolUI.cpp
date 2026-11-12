@@ -194,7 +194,8 @@ void ApplyBaseStyle(ImGuiStyle& Style, const FToolUIThemeMetrics& Metrics)
 	Style.TabBarBorderSize = 0.f;
 	Style.TabBarOverlineSize = 0.f;
 	Style.TabCloseButtonMinWidthSelected = 0.f;
-	Style.DockingSeparatorSize = 1.f;
+	// Wide enough for the canvas to show between docked panels, so each reads as its own surface.
+	Style.DockingSeparatorSize = 5.f;
 	Style.SeparatorSize = 1.f;
 	Style.DisabledAlpha = 0.55f;
 
@@ -281,12 +282,18 @@ void ApplyAppearanceStyle(ImGuiStyle& Style, const FEditorAppearance& Appearance
 	ImVec4* const Palette = Style.Colors;
 	Palette[ImGuiCol_WindowBg] = WithAlpha(ToolUITheme::Surface0, Alpha);
 	Palette[ImGuiCol_ChildBg] = WithAlpha(ToolUITheme::Surface0, 0.f);
-	Palette[ImGuiCol_FrameBg] = WithAlpha(ToolUITheme::Surface1, Alpha * 0.5f);
-	Palette[ImGuiCol_Button] = WithAlpha(ToolUITheme::Surface1, Alpha * 0.5f);
+	// Fields sink below the panel and buttons rise above it.
+	Palette[ImGuiCol_FrameBg] = WithAlpha(ToolUITheme::Surface1, Alpha);
+	Palette[ImGuiCol_Button] = WithAlpha(ToolUITheme::Surface2, Alpha);
 	Palette[ImGuiCol_PopupBg] = WithAlpha(ToolUITheme::Surface1, 0.f);
-	Palette[ImGuiCol_TitleBg] = WithAlpha(ToolUITheme::Surface0, 0.f);
-	Palette[ImGuiCol_TitleBgActive] = WithAlpha(ToolUITheme::Surface0, 0.f);
-	Palette[ImGuiCol_TitleBgCollapsed] = WithAlpha(ToolUITheme::Surface0, 0.f);
+	// A panel's tab row is a darker well, and its selected tab takes the panel's own color so it joins the content under it.
+	Palette[ImGuiCol_TitleBg] = WithAlpha(ToolUITheme::TitleBar, Alpha);
+	Palette[ImGuiCol_TitleBgActive] = WithAlpha(ToolUITheme::TitleBar, Alpha);
+	Palette[ImGuiCol_TitleBgCollapsed] = WithAlpha(ToolUITheme::TitleBar, Alpha);
+	Palette[ImGuiCol_Tab] = WithAlpha(ToolUITheme::TitleBar, 0.f);
+	Palette[ImGuiCol_TabDimmed] = WithAlpha(ToolUITheme::TitleBar, 0.f);
+	Palette[ImGuiCol_TabSelected] = WithAlpha(ToolUITheme::Surface0, Alpha);
+	Palette[ImGuiCol_TabDimmedSelected] = WithAlpha(ToolUITheme::Surface0, Alpha);
 	Palette[ImGuiCol_MenuBarBg] = WithAlpha(ToolUITheme::Surface0, 0.f);
 	Palette[ImGuiCol_ScrollbarBg] = WithAlpha(ToolUITheme::Surface0, 0.f);
 	Palette[ImGuiCol_TableHeaderBg] = WithAlpha(ToolUITheme::Surface2, Alpha);
@@ -499,7 +506,8 @@ struct FToolUIContext::FImplementation
 
 namespace
 {
-void DrawGlassSurface(ImDrawList& DrawList, const ImGuiViewport& Viewport, const FEditorAppearance& Appearance, const ImVec2 Minimum, const ImVec2 Maximum, const float Radius)
+// Panels fill with Surface0; the window chrome around them passes TitleBar, a step darker, so the panels stand out from it.
+void DrawGlassSurface(ImDrawList& DrawList, const ImGuiViewport& Viewport, const FEditorAppearance& Appearance, const ImVec2 Minimum, const ImVec2 Maximum, const float Radius, const FToolUIColor Fill = ToolUITheme::Surface0)
 {
 	const float BlurRadius = std::clamp(Appearance.BlurRadius, 0.f, 40.f);
 	if (BlurRadius > 0.f && Viewport.Size.x > 0.f && Viewport.Size.y > 0.f)
@@ -512,7 +520,7 @@ void DrawGlassSurface(ImDrawList& DrawList, const ImGuiViewport& Viewport, const
 		DrawList.AddImageRounded(ImTextureRef(BackdropId), Minimum, Maximum, UVMinimum, UVMaximum, IM_COL32_WHITE, Radius);
 	}
 
-	DrawList.AddRectFilled(Minimum, Maximum, ImGui::ColorConvertFloat4ToU32(WithAlpha(ToolUITheme::Surface0, ClampToolUIUnit(Appearance.PanelOpacity))), Radius);
+	DrawList.AddRectFilled(Minimum, Maximum, ImGui::ColorConvertFloat4ToU32(WithAlpha(Fill, ClampToolUIUnit(Appearance.PanelOpacity))), Radius);
 	if (Radius > 0.f)
 	{
 		DrawList.AddRect(Minimum, Maximum, ImGui::ColorConvertFloat4ToU32(WithAlpha(ToolUITheme::NeutralAccent, ClampToolUIUnit(Appearance.PanelOpacity) * 0.28f)), Radius, 0, Viewport.DpiScale);
@@ -2090,7 +2098,7 @@ void DrawDetachedViewportChrome(FToolUIContext::FImplementation& Owner)
 		Background->AddRectFilled(Minimum, ViewportMaximum, ToImGuiPackedColor(ToolUITheme::Canvas));
 		Background->AddRectFilledMultiColor(Minimum, {ViewportMaximum.x, GradientBottom}, ToImGuiPackedColor(Gradient.TopLeft), ToImGuiPackedColor(Gradient.TopRight), ToImGuiPackedColor(Gradient.BottomRight), ToImGuiPackedColor(Gradient.BottomLeft));
 		ImDrawList* const DrawList = ImGui::GetForegroundDrawList(Viewport);
-		DrawGlassSurface(*DrawList, *Viewport, Owner.Appearance, Minimum, TitleBarMaximum, 0.f);
+		DrawGlassSurface(*DrawList, *Viewport, Owner.Appearance, Minimum, TitleBarMaximum, 0.f, ToolUITheme::TitleBar);
 		DrawList->AddLine({Minimum.x, TitleBarMaximum.y}, {TitleBarMaximum.x, TitleBarMaximum.y}, ToImGuiPackedColor(ToolUITheme::BorderSoft));
 		DrawList->AddCircle({Minimum.x + 18.f * Scale, Minimum.y + 18.f * Scale}, 7.f * Scale, ToImGuiPackedColor(ToolUITheme::NeutralAccent), 24, 2.f * Scale);
 		DrawList->AddCircleFilled({Minimum.x + 18.f * Scale, Minimum.y + 18.f * Scale}, 2.f * Scale, ToImGuiPackedColor(ToolUITheme::NeutralAccent));
@@ -2845,7 +2853,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	const float StatusBarHeight = Implementation->Metrics.StatusBarHeight * ChromeScale;
 	const float TabRowHeight = 34.f * ChromeScale;
 	const float TabRowBottom = TitleBarBottom + TabRowHeight;
-	Herta::DrawGlassSurface(*DrawList, *Viewport, Implementation->Appearance, ViewportMinimum, {ViewportMaximum.x, TabRowBottom}, 0.f);
+	Herta::DrawGlassSurface(*DrawList, *Viewport, Implementation->Appearance, ViewportMinimum, {ViewportMaximum.x, TabRowBottom}, 0.f, ToolUITheme::TitleBar);
 	DrawList->AddLine({ViewportMinimum.x, TabRowBottom - 1.f}, {ViewportMaximum.x, TabRowBottom - 1.f}, ToImGuiPackedColor(ToolUITheme::BorderSoft));
 
 	const ImVec2 SystemMinimum = ViewportMinimum;
@@ -3083,7 +3091,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	}
 
 	const ImVec2 StatusMinimum{ViewportMinimum.x, ViewportMaximum.y - StatusBarHeight};
-	Herta::DrawGlassSurface(*DrawList, *Viewport, Implementation->Appearance, StatusMinimum, ViewportMaximum, 0.f);
+	Herta::DrawGlassSurface(*DrawList, *Viewport, Implementation->Appearance, StatusMinimum, ViewportMaximum, 0.f, ToolUITheme::TitleBar);
 	DrawList->AddLine(StatusMinimum, {ViewportMaximum.x, StatusMinimum.y}, ToImGuiPackedColor(ToolUITheme::BorderSoft));
 	ImGui::SetCursorScreenPos(StatusMinimum);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {10.f * ChromeScale, 6.f * ChromeScale});
