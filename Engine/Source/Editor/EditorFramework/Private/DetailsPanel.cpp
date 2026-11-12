@@ -516,7 +516,7 @@ void DrawMaterialSlots(FToolUIContext& ToolUI, FDetailsPanelState& State, const 
 			ImGui::TableSetColumnIndex(0);
 			ImGui::AlignTextToFramePadding();
 			const std::string Name = Slot.Name.empty() ? std::string("Slot ") + std::to_string(SlotIndex) : Slot.Name;
-			const ImVec2 Position{ImGui::GetCursorScreenPos().x + PropertyGroupIndent * Scale, ImGui::GetCursorScreenPos().y};
+			const ImVec2 Position{ImGui::GetCursorScreenPos().x + PropertyGroupIndent * Scale, ImGui::GetCursorScreenPos().y + ImGui::GetStyle().FramePadding.y};
 			const float Width = std::max(1.f, ImGui::GetContentRegionAvail().x - (4.f + PropertyGroupIndent) * Scale);
 			ImGui::Dummy({Width, ImGui::GetTextLineHeight()});
 			ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
@@ -806,7 +806,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 			ImGui::AlignTextToFramePadding();
 			ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
 			const float LabelLimit = ImGui::GetCursorScreenPos().x + LabelWidth - 4.f * Scale;
-			const ImVec2 LabelPosition{ImGui::GetCursorScreenPos().x + (Group.empty() ? 0.f : PropertyGroupIndent * Scale), ImGui::GetCursorScreenPos().y};
+			const ImVec2 LabelPosition{ImGui::GetCursorScreenPos().x + (Group.empty() ? 0.f : PropertyGroupIndent * Scale), ImGui::GetCursorScreenPos().y + ImGui::GetStyle().FramePadding.y};
 			ImGui::Dummy({std::max(1.f, LabelWidth - 4.f * Scale), ImGui::GetTextLineHeight()});
 			ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), LabelPosition, {LabelLimit, LabelPosition.y + ImGui::GetFontSize()}, LabelLimit, DisplayLabel.data(), DisplayLabel.data() + DisplayLabel.size(), nullptr);
 			ImGui::PopStyleColor();
