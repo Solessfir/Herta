@@ -57,7 +57,10 @@ enum class ETextureFormat : std::uint8_t
 	// Orthographic shadow cascades keep millimetre precision in 16 bits at half the memory and bandwidth.
 	Depth16,
 	// One unsigned normalized channel, such as a screen-space shadow mask.
-	R8
+	R8,
+	// Unsigned HDR color in 32 bits, with 6 bits of mantissa for red and green and 5 for blue: half the memory of half floats where many
+	// texels are averaged before anything shows them, such as radiance tiles.
+	R11G11B10Float,
 };
 
 [[nodiscard]] constexpr bool IsDepthFormat(const ETextureFormat Format) noexcept
@@ -75,6 +78,7 @@ enum class ETextureFormat : std::uint8_t
 		case ETextureFormat::R32Float:
 		case ETextureFormat::R32Uint:
 		case ETextureFormat::Rg16Float:
+		case ETextureFormat::R11G11B10Float:
 			return 4;
 		case ETextureFormat::Rgba16Float:
 			return 8;

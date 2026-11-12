@@ -7,8 +7,9 @@
 // takes the light from the next level's probes around it. Every ray has a fixed direction, so nothing is random and a still scene never changes.
 //
 // Level 0 keeps no radiance: its probes trace 64 near rays and read level 1. Levels 1 to 3 keep an octahedral radiance tile of 16, 32, and 64
-// texels a side for their shell, premultiplied by a coverage of 1 where the texel is known, and trace the same 64 near rays to stand in for the
-// field's probes where the camera or other rays read them directly. Near rays, merged with the cascades, blend into the irradiance and distance
+// texels a side for their shell, in 32-bit float color since many texels are averaged before a pixel shows them, and trace the same 64 near rays
+// to stand in for the field's probes where the camera or other rays read them directly. A shell counts only once every texel that left it has
+// found the level above. Near rays, merged with the cascades, blend into the irradiance and distance
 // tiles the field's readers sample, so gathering and reflections are the field's own.
 //
 // Keep the constants in sync with RadianceCascades.cpp.
@@ -77,7 +78,7 @@ float3 CascadeProbePosition(uint Level, int3 Cell, uint Probe)
     return float3(Cell) * FieldSpacing(Level) + FieldProbes[Probe].xyz;
 }
 
-[[vk::binding(CASCADE_PARENT_BINDING, 0)]] Texture2D<float4> CascadeParentAtlas;
+[[vk::binding(CASCADE_PARENT_BINDING, 0)]] Texture2D<float3> CascadeParentAtlas;
 
 // The eight probes of a level around a position, and the trilinear weight of each.
 struct FCascadeParents
@@ -122,8 +123,8 @@ void CascadeTouchParents(uint Level, float3 Position)
 // The light past a ray that left its own range unoccluded: what a level's probes around Position keep for Direction, trilinearly weighted.
 // The ray ended End along Direction, and a probe's shell begins the same distance along it from where that probe stands, so a probe only
 // counts if the segment between the two is open: its shell would otherwise continue the ray from behind a wall the ray never crossed, and
-// bring that side's light through. Coverage in alpha is 0 where the probes have nothing yet, and the light is black where every probe that
-// could have had it is cut off.
+// bring that side's light through. Alpha is 0 where the probes have nothing yet, and the light is black where every probe that could have
+// had it is cut off.
 float4 CascadeMerge(uint Level, float3 Position, float3 Direction, float End)
 {
     FCascadeParents Parents = CascadeParentsAt(Level, Position);
@@ -134,7 +135,8 @@ float4 CascadeMerge(uint Level, float3 Position, float3 Direction, float End)
     // by the distance between the two.
     float3 Aim = Position + Direction * (CascadeAimDistance * CascadeShellStart(Level));
     float3 RayEnd = Position + Direction * End;
-    float4 Sum = 0.0;
+    float3 Sum = 0.0;
+    float Weights = 0.0;
     bool bKnown = false;
     for (uint Corner = 0; Corner < 8; ++Corner)
     {
@@ -151,8 +153,9 @@ float4 CascadeMerge(uint Level, float3 Position, float3 Direction, float End)
         if (Index >= FieldRequested)
             continue;
 
-        uint Traced = FieldUsed[CascadeRadianceFrame + Index];
-        if (Traced == 0u || FieldProbes[Index].w == FieldProbeInside)
+        // A probe inside geometry, or a shell not traced yet or still waiting for the level above, says nothing about this ray. Counting the
+        // first as black lit a probe from the one probe above it that had sunk into a floor.
+        if (FieldProbes[Index].w == FieldProbeInside || FieldUsed[CascadeRadianceFrame + Index] <= CascadeIncomplete)
             continue;
 
         float3 Parent = CascadeProbePosition(Level, Cell, Index);
@@ -168,12 +171,11 @@ float4 CascadeMerge(uint Level, float3 Position, float3 Direction, float End)
         float2 Texel = 1.0 + FieldOctahedralEncode(Towards) * float(CascadeTexels(Level));
         float2 UV = (float2(CascadeTileOrigin(Level, Index)) + Texel) / float2(Width, Height);
         Sum += CascadeParentAtlas.SampleLevel(LinearSampler, UV, 0) * Weight;
-        // A shell still waiting for the level above says nothing about the texels it lacks.
-        bKnown = bKnown || Traced != CascadeIncomplete;
+        Weights += Weight;
     }
 
-    if (Sum.a > 1e-4)
-        return float4(Sum.rgb / Sum.a, 1.0);
+    if (Weights > 0.0)
+        return float4(Sum / Weights, 1.0);
 
     return bKnown ? float4(0.0, 0.0, 0.0, 1.0) : 0.0;
 }

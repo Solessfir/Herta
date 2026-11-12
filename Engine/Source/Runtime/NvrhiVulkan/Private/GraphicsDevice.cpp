@@ -60,6 +60,8 @@ constexpr std::size_t MaximumGpuPassTimings = 32;
 			return nvrhi::Format::D16;
 		case ETextureFormat::R8:
 			return nvrhi::Format::R8_UNORM;
+		case ETextureFormat::R11G11B10Float:
+			return nvrhi::Format::R11G11B10_FLOAT;
 	}
 
 	return nvrhi::Format::UNKNOWN;

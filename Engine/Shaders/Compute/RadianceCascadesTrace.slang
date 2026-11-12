@@ -17,7 +17,7 @@
 [[vk::binding(20, 0)]] StructuredBuffer<uint> Lists;
 // Each probe's cell, level, and update count; see FieldProbeLevel.
 [[vk::binding(21, 0)]] StructuredBuffer<int4> ProbeCells;
-[[vk::binding(384, 0)]] [format("rgba16f")] RWTexture2D<float4> Radiance;
+[[vk::binding(384, 0)]] [format("r11f_g11f_b10f")] RWTexture2D<float3> Radiance;
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
@@ -52,8 +52,8 @@ void computeMain(uint3 Group : SV_GroupID, uint Thread : SV_GroupIndex)
         FSurfacePoint Point = ShadeHit(Hit, Direction, Distance * 3.5 / float(Texels));
         if (Point.bBackFace)
         {
-            // The shell began inside geometry, behind a wall the rays that read it stopped at or never crossed, so it knows nothing here.
-            Result = 0.0;
+            // The shell began inside geometry, behind a wall the rays that read it stopped at or never crossed.
+            Result = float4(0.0, 0.0, 0.0, 1.0);
         }
         else
         {
@@ -80,15 +80,15 @@ void computeMain(uint3 Group : SV_GroupID, uint Thread : SV_GroupIndex)
     // Border texels mirror the interior across each edge, so bilinear reads over a tile's edge continue the octahedral map.
     int2 Origin2 = int2(CascadeTileOrigin(Level, Probe)) + 1;
     int Last = int(Texels) - 1;
-    Radiance[Origin2 + Texel] = Result;
+    Radiance[Origin2 + Texel] = Result.rgb;
     bool2 bLow = Texel == 0;
     bool2 bHigh = Texel == Last;
     if (bLow.x || bHigh.x)
-        Radiance[Origin2 + int2(bLow.x ? -1 : Last + 1, Last - Texel.y)] = Result;
+        Radiance[Origin2 + int2(bLow.x ? -1 : Last + 1, Last - Texel.y)] = Result.rgb;
 
     if (bLow.y || bHigh.y)
-        Radiance[Origin2 + int2(Last - Texel.x, bLow.y ? -1 : Last + 1)] = Result;
+        Radiance[Origin2 + int2(Last - Texel.x, bLow.y ? -1 : Last + 1)] = Result.rgb;
 
     if ((bLow.x || bHigh.x) && (bLow.y || bHigh.y))
-        Radiance[Origin2 + int2(bLow.x ? Last + 1 : -1, bLow.y ? Last + 1 : -1)] = Result;
+        Radiance[Origin2 + int2(bLow.x ? Last + 1 : -1, bLow.y ? Last + 1 : -1)] = Result.rgb;
 }

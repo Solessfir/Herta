@@ -17,19 +17,19 @@
 // Each probe's cell, level, and update count; see FieldProbeLevel.
 [[vk::binding(21, 0)]] StructuredBuffer<int4> ProbeCells;
 // Levels 2 and 3's radiance; level 1's is CascadeParentAtlas.
-[[vk::binding(6, 0)]] Texture2D<float4> Radiance2;
-[[vk::binding(7, 0)]] Texture2D<float4> Radiance3;
+[[vk::binding(6, 0)]] Texture2D<float3> Radiance2;
+[[vk::binding(7, 0)]] Texture2D<float3> Radiance3;
 [[vk::binding(384, 0)]] RWStructuredBuffer<float> RayData;
 
-// A probe's own shell for a direction, or no coverage before it has traced it.
+// A probe's own shell for a direction, or nothing in alpha until every texel of it has the level above.
 float4 OwnRadiance(uint Level, uint Probe, float3 Direction)
 {
-    if (FieldUsed[CascadeRadianceFrame + Probe] == 0u)
+    if (FieldUsed[CascadeRadianceFrame + Probe] <= CascadeIncomplete)
         return 0.0;
 
     float2 Texel = float2(CascadeTileOrigin(Level, Probe)) + 1.0 + FieldOctahedralEncode(Direction) * float(CascadeTexels(Level));
     uint Width, Height;
-    float4 Sample;
+    float3 Sample;
     if (Level == 1)
     {
         CascadeParentAtlas.GetDimensions(Width, Height);
@@ -46,7 +46,7 @@ float4 OwnRadiance(uint Level, uint Probe, float3 Direction)
         Sample = Radiance3.SampleLevel(LinearSampler, Texel / float2(Width, Height), 0);
     }
 
-    return Sample.a > 1e-4 ? float4(Sample.rgb / Sample.a, 1.0) : 0.0;
+    return float4(Sample, 1.0);
 }
 
 [shader("compute")]

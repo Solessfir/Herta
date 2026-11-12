@@ -203,7 +203,7 @@ std::expected<void, FPresentationError> FRadianceCascades::Allocate(const FExten
 		constexpr std::array Names{"Radiance cascades level 1", "Radiance cascades level 2", "Radiance cascades level 3"};
 		for (std::uint32_t Level = 1; Level < FieldLevels && Result; ++Level)
 		{
-			Result = Texture(RadianceAtlases[Level - 1], Names[Level - 1], RadianceExtent(Level), ETextureFormat::Rgba16Float);
+			Result = Texture(RadianceAtlases[Level - 1], Names[Level - 1], RadianceExtent(Level), ETextureFormat::R11G11B10Float);
 		}
 	}
 
