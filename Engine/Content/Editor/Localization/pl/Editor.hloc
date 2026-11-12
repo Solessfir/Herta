@@ -112,7 +112,7 @@
     {"key": "Label.Mieanisotropy", "text": "Anizotropia Mie"},
     {"key": "Label.Miescattering", "text": "Rozpraszanie Mie"},
     {"key": "Label.MinimumDistance", "text": "Minimalna odległość"},
-    {"key": "Label.Mover", "text": "Ruch"},
+    {"key": "Label.Mover", "text": "Ruch po trasie"},
     {"key": "Label.Multiplevalues", "text": "Różne wartości"},
     {"key": "Label.NavigationBounds", "text": "Granice nawigacji"},
     {"key": "Label.NavigationObstacle", "text": "Przeszkoda nawigacji"},
