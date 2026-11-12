@@ -175,6 +175,8 @@ void DrawObjectIcon(const ImVec2 Position, const float Size, const bool bEntity)
 	ToolUIIcon(bEntity ? EToolUIMenuIcon::Entity : EToolUIMenuIcon::Cube, Position.x + Size * 0.5f, Position.y + Size * 0.5f, Size / 22.f);
 }
 
+[[nodiscard]] FToolUIColor GetComponentTypeColor(std::string_view Label);
+
 EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelState& State, const FDetailsComponentField& Components, const bool bDragging)
 {
 	ImGui::BeginDisabled(bDragging);
@@ -208,8 +210,6 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		const ImVec2 Position = ImGui::GetWindowPos();
 		const ImVec2 Size = ImGui::GetWindowSize();
 		ToolUI.DrawGlassSurface(Position.x, Position.y, Size.x, Size.y, ToolUI.GetMetrics().PopupRounding * Scale);
-		ImGui::TextUnformatted("Add Component");
-		ImGui::Separator();
 		if (ImGui::IsWindowAppearing())
 		{
 			ImGui::SetKeyboardFocusHere();
@@ -254,13 +254,47 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		    EDetailsComponentAction::AddGameplayGraph,
 		    EDetailsComponentAction::AddPlayer,
 		};
-		const auto Matches = SearchAssets(Names, State.ComponentSearch.data());
-		std::vector<int> Available;
-		for (const FAssetSearchMatch& Match : Matches.value_or(std::vector<FAssetSearchMatch>{}))
+
+		// Without a search the components list by system under a heading each; a search ranks them in one flat list.
+		struct FComponentGroup
 		{
-			if (!Added[Match.Index])
+			std::string_view Heading;
+			std::span<const int> Members;
+		};
+
+		constexpr std::array Rendering{0, 2, 3, 4, 5, 6, 17, 7, 8};
+		constexpr std::array Physics{1, 9, 10, 11, 12, 13};
+		constexpr std::array Gameplay{14, 22, 20, 21};
+		constexpr std::array Audio{15, 16};
+		constexpr std::array Navigation{18, 19};
+		const std::array<FComponentGroup, 5> Groups{{{"Rendering", Rendering}, {"Physics", Physics}, {"Gameplay", Gameplay}, {"Audio", Audio}, {"Navigation", Navigation}}};
+		const auto Matches = SearchAssets(Names, State.ComponentSearch.data());
+		// Each listed component with its group, or -1 in a search.
+		std::vector<std::pair<int, int>> Listed;
+		if (State.ComponentSearch[0] == '\0')
+		{
+			for (std::size_t Group = 0; Group < Groups.size(); ++Group)
 			{
-				Available.push_back(static_cast<int>(Match.Index));
+				for (const int Member : Groups[Group].Members)
+				{
+					Listed.emplace_back(Member, static_cast<int>(Group));
+				}
+			}
+		}
+		else
+		{
+			for (const FAssetSearchMatch& Match : Matches.value_or(std::vector<FAssetSearchMatch>{}))
+			{
+				Listed.emplace_back(static_cast<int>(Match.Index), -1);
+			}
+		}
+
+		std::vector<int> Available;
+		for (const auto& [Member, Group] : Listed)
+		{
+			if (!Added[static_cast<std::size_t>(Member)])
+			{
+				Available.push_back(Member);
 			}
 		}
 
@@ -279,14 +313,23 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 			State.ComponentResult = Available[static_cast<std::size_t>((Index + (bUp ? Count - 1 : 1)) % Count)];
 		}
 
-		if (!Matches || Matches->empty())
+		if (Listed.empty())
 		{
 			ImGui::TextDisabled("No matching components");
 		}
 
-		for (const FAssetSearchMatch& Match : Matches.value_or(std::vector<FAssetSearchMatch>{}))
+		int ShownGroup = -1;
+		for (const auto& [Member, Group] : Listed)
 		{
-			const std::size_t Index = Match.Index;
+			const auto Index = static_cast<std::size_t>(Member);
+			if (Group != ShownGroup && Group >= 0)
+			{
+				ShownGroup = Group;
+				const std::string_view Heading = Groups[static_cast<std::size_t>(Group)].Heading;
+				ImGui::Dummy({0.f, 2.f * Scale});
+				ImGui::TextDisabled("%.*s", static_cast<int>(Heading.size()), Heading.data());
+			}
+
 			ImGui::BeginDisabled(Added[Index]);
 			ImDrawList* const Draw = ImGui::GetWindowDrawList();
 			ImDrawListSplitter Layers;
@@ -300,6 +343,9 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 			const bool bPressed = ToolUIMenuItem(Names[Index], Icon, nullptr, Added[Index] ? "Added" : nullptr);
 			const ImVec2 Minimum = ImGui::GetItemRectMin();
 			const ImVec2 Maximum = ImGui::GetItemRectMax();
+			// The row's left edge carries the component's type color, as its header will in Details.
+			const FToolUIColor TypeColor = GetComponentTypeColor(Names[Index]);
+			Draw->AddRectFilled({Minimum.x, Minimum.y + 5.f * Scale}, {Minimum.x + 3.f * Scale, Maximum.y - 5.f * Scale}, IM_COL32(TypeColor.Red, TypeColor.Green, TypeColor.Blue, Added[Index] ? 90 : 255), 1.5f * Scale);
 			Layers.SetCurrentChannel(Draw, 0);
 			if (State.ComponentResult == static_cast<int>(Index))
 			{

@@ -78,7 +78,18 @@ void FEditorFramework::FImplementation::DrawWorldSettingsPanel()
 	constexpr ImGuiTreeNodeFlags SectionFlags = ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_DefaultOpen;
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * Scale, 6.f * Scale});
 	ImGui::BeginDisabled(bProjectBusy || IsSimulating() || PlaySession != nullptr);
-	if (ImGui::TreeNodeEx("Exposure", SectionFlags))
+	// Sections read like Details components: the label starts after a bar in the section's color, which the leading spaces leave room for.
+	const auto Section = [&](const char* const Label, const FToolUIColor Color)
+	{
+		const bool bOpen = ImGui::TreeNodeEx(Label, SectionFlags);
+		const ImVec2 Minimum = ImGui::GetItemRectMin();
+		const float BarX = Minimum.x + ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.x * 2.f;
+		const float Middle = (Minimum.y + ImGui::GetItemRectMax().y) * 0.5f;
+		ImGui::GetWindowDrawList()->AddRectFilled({BarX, Middle - ImGui::GetFontSize() * 0.45f}, {BarX + 3.f * Scale, Middle + ImGui::GetFontSize() * 0.45f}, PackColor(Color), 1.5f * Scale);
+		return bOpen;
+	};
+
+	if (Section("   Exposure###Exposure", ToolUITheme::TypeLight))
 	{
 		DrawFieldLabel("Compensation", ValueWidth);
 		DrawNumericSliderFloat("##ExposureCompensation", &ExposureCompensation, -MaximumLevelExposureCompensation, MaximumLevelExposureCompensation, "%+.1f EV", ImGuiSliderFlags_AlwaysClamp);
@@ -94,12 +105,12 @@ void FEditorFramework::FImplementation::DrawWorldSettingsPanel()
 		bExposureCompensationActive = ImGui::IsItemActive();
 	}
 
-	if (ImGui::TreeNodeEx("Regions", SectionFlags))
+	if (Section("   Regions###Regions", ToolUITheme::TypeMesh))
 	{
 		DrawLevelRegions(ValueWidth, Scale);
 	}
 
-	if (ImGui::TreeNodeEx("Camera Bookmarks", SectionFlags))
+	if (Section("   Camera Bookmarks###Camera Bookmarks", ToolUITheme::TypeOther))
 	{
 		DrawCameraBookmarks(Scale);
 	}
