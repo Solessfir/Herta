@@ -2,6 +2,7 @@ function HertaFastGltf()
     local RepositoryRoot = path.getabsolute(_MAIN_SCRIPT_DIR)
     local FastGltfRoot = path.join(RepositoryRoot, "External/fastgltf")
     local SimdjsonRoot = path.join(RepositoryRoot, "External/simdjson")
+    local SimdutfRoot = path.join(RepositoryRoot, "External/simdutf")
     local ProjectFilesRoot = path.join(RepositoryRoot, "Intermediate/ProjectFiles", (_ACTION or "NoAction") .. HertaToolsetSuffix)
 
     project "FastGltf"
@@ -13,15 +14,16 @@ function HertaFastGltf()
         dependson { "SimdJson" }
 
         files {
-            path.join(FastGltfRoot, "src/base64.cpp"),
-            path.join(FastGltfRoot, "src/fastgltf.cpp"),
-            path.join(FastGltfRoot, "src/io.cpp"),
-            path.join(FastGltfRoot, "include/fastgltf/*.hpp")
+            path.join(FastGltfRoot, "src/*.cpp"),
+            path.join(FastGltfRoot, "include/fastgltf/**.hpp"),
+            -- simdutf decodes base64 buffers and validates UTF-8 for fastgltf alone, so it builds into this library.
+            path.join(SimdutfRoot, "simdutf.cpp")
         }
 
         externalincludedirs {
             path.join(FastGltfRoot, "include"),
-            SimdjsonRoot
+            SimdjsonRoot,
+            SimdutfRoot
         }
 
         filter "system:windows"

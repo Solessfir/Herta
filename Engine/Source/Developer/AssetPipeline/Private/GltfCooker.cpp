@@ -398,7 +398,7 @@ private:
 			return;
 		}
 
-		const auto* Position = Primitive.findAttribute("POSITION");
+		const auto Position = Primitive.findAttribute("POSITION");
 		if (Position == Primitive.attributes.end())
 		{
 			Warn(std::format("Mesh '{}' primitive {} has no positions and was skipped", MeshName, PrimitiveIndex));
@@ -472,7 +472,7 @@ private:
 
 		const std::string TexCoordName = std::format("TEXCOORD_{}", TexCoordSet);
 
-		if (const auto* TexCoord = Primitive.findAttribute(TexCoordName); TexCoord != Primitive.attributes.end())
+		if (const auto TexCoord = Primitive.findAttribute(TexCoordName); TexCoord != Primitive.attributes.end())
 		{
 			const fastgltf::Accessor& TexCoordAccessor = Asset.accessors[TexCoord->accessorIndex];
 			if (TexCoordAccessor.count != VertexCount)
@@ -546,8 +546,8 @@ private:
 
 	[[nodiscard]] bool AddInfluences(const fastgltf::Primitive& Primitive, const std::vector<std::uint16_t>& SkinJoints, FMaterialBucket& Bucket, const std::size_t VertexBase, const std::size_t VertexCount, const std::string& MeshName, const std::size_t PrimitiveIndex)
 	{
-		const auto* Joints = Primitive.findAttribute("JOINTS_0");
-		const auto* Weights = Primitive.findAttribute("WEIGHTS_0");
+		const auto Joints = Primitive.findAttribute("JOINTS_0");
+		const auto Weights = Primitive.findAttribute("WEIGHTS_0");
 		if (Joints == Primitive.attributes.end() || Weights == Primitive.attributes.end() || Asset.accessors[Joints->accessorIndex].count != VertexCount || Asset.accessors[Weights->accessorIndex].count != VertexCount)
 		{
 			Fail(std::format("Skinned mesh '{}' primitive {} needs JOINTS_0 and WEIGHTS_0 for every vertex", MeshName, PrimitiveIndex));
@@ -636,7 +636,7 @@ private:
 			}
 		}
 
-		const auto* NormalAttribute = Primitive.findAttribute("NORMAL");
+		const auto NormalAttribute = Primitive.findAttribute("NORMAL");
 		if (NormalAttribute != Primitive.attributes.end())
 		{
 			const auto& Accessor = Asset.accessors[NormalAttribute->accessorIndex];
@@ -672,7 +672,7 @@ private:
 			});
 		}
 
-		const auto* TangentAttribute = Primitive.findAttribute("TANGENT");
+		const auto TangentAttribute = Primitive.findAttribute("TANGENT");
 		std::vector<float> Signs(VertexCount, 0.f);
 		if (TangentAttribute != Primitive.attributes.end())
 		{
@@ -784,7 +784,7 @@ std::expected<std::vector<std::string>, FAssetError> FindGltfDependencies(const 
 	{
 		if (const auto* Uri = std::get_if<fastgltf::sources::URI>(&Source))
 		{
-			std::expected<std::string, FAssetError> Resolved = ResolveUri(SourcePath, Uri->uri);
+			std::expected<std::string, FAssetError> Resolved = ResolveUri(SourcePath, *Uri->uri);
 			if (!Resolved)
 			{
 				return std::unexpected(std::move(Resolved.error()));
