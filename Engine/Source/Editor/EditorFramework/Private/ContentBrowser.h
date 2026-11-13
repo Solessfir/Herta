@@ -37,6 +37,9 @@ struct FContentBrowserState
 	std::array<char, 256> Search{};
 	bool bFocusRequested = false;
 	std::string Folder = "Game";
+	// Folders shown before and after the current one, nearest last, for the mouse's back and forward buttons.
+	std::vector<std::string> BackHistory;
+	std::vector<std::string> ForwardHistory;
 	std::string SelectedFolder;
 	std::string ContextFolder;
 	FAssetId Selected{};
@@ -88,6 +91,8 @@ bool IsEffectContentAsset(const FPreviewAssetOption& Asset) noexcept;
 void ToggleContentBrowser(bool& bOpen, FContentBrowserState& State);
 // Shows a folder by its mount-prefixed path, finishing any folder rename in progress first.
 void NavigateContentFolder(FContentBrowserState& State, const std::string& Folder, FPreviewAssets* Assets);
+// Shows the previous folder, or with bForward the one left by going back, skipping folders that no longer exist.
+void StepContentFolderHistory(FContentBrowserState& State, bool bForward, FPreviewAssets* Assets);
 // The drawer variant floats over a document tab and closes once focus leaves it.
 bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserState& State, FPreviewAssets* Assets, bool bDrawer = false);
 }

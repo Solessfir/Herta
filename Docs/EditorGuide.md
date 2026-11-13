@@ -120,7 +120,7 @@ The player plays the entity with a **Player** component, which needs a Character
 
 The Content Browser toolbar is one row: a button that hides the folder tree, Import, the current folder as a clickable path, a search scoped to that folder, type chips (Models, Materials, Sounds, Graphs), and view options with the thumbnail size. Folder rows in the tree show how many assets each holds, and each tile carries a line in its type color. A panel too narrow for the row drops the chips first, then the path.
 
-Ctrl+click adds or removes a tile from the selection, Shift+click selects every tile from the last click, and **Ctrl+A** selects every folder and asset shown. **Delete** or the context menu's Delete moves all selected Game assets to the trash after one confirmation, and dragging any selected asset onto a folder moves them all; Engine content stays read-only.
+Ctrl+click adds or removes a tile from the selection, Shift+click selects every tile from the last click, and **Ctrl+A** selects every folder and asset shown. **Delete** or the context menu's Delete moves all selected Game assets to the trash after one confirmation, and dragging any selected asset onto a folder moves them all; Engine content stays read-only. The mouse's back and forward side buttons over the browser step through the folders visited.
 
 Right-click a folder and choose **Open in Explorer** (Windows) or **Open in file manager** (Linux) to open it in the default file manager. Right-clicking empty space opens the current content folder. **Ctrl+Shift+O** in the focused Content Browser opens the selected folder, the selected asset's containing folder, or the current folder when nothing is selected.
 

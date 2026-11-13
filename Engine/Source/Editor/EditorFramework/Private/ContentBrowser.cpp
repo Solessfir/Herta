@@ -55,17 +55,59 @@ bool FinishFolderRename(FContentBrowserState& State, FPreviewAssets& Assets)
 }
 }
 
-void NavigateContentFolder(FContentBrowserState& State, const std::string& Folder, FPreviewAssets* const Assets)
+namespace
+{
+bool ShowContentFolder(FContentBrowserState& State, const std::string& Folder, FPreviewAssets* const Assets)
 {
 	const bool bRenamedTarget = !State.RenamingFolder.empty() && Folder == State.RenamingFolder;
 	if (Assets && !FinishFolderRename(State, *Assets))
 	{
-		return;
+		return false;
 	}
 
 	State.Folder = bRenamedTarget ? State.SelectedFolder : Folder;
 	State.ClearSelection();
 	State.Filter();
+	return true;
+}
+
+void PushContentHistory(std::vector<std::string>& History, std::string Folder)
+{
+	constexpr std::size_t MaximumHistory = 64;
+	if (History.size() == MaximumHistory)
+	{
+		History.erase(History.begin());
+	}
+
+	History.push_back(std::move(Folder));
+}
+}
+
+void NavigateContentFolder(FContentBrowserState& State, const std::string& Folder, FPreviewAssets* const Assets)
+{
+	std::string Previous = State.Folder;
+	if (ShowContentFolder(State, Folder, Assets) && State.Folder != Previous)
+	{
+		PushContentHistory(State.BackHistory, std::move(Previous));
+		State.ForwardHistory.clear();
+	}
+}
+
+void StepContentFolderHistory(FContentBrowserState& State, const bool bForward, FPreviewAssets* const Assets)
+{
+	std::vector<std::string>& From = bForward ? State.ForwardHistory : State.BackHistory;
+	std::vector<std::string>& To = bForward ? State.BackHistory : State.ForwardHistory;
+	while (!From.empty() && (From.back() == State.Folder || !std::ranges::contains(State.Folders, From.back())))
+	{
+		From.pop_back();
+	}
+
+	std::string Previous = State.Folder;
+	if (!From.empty() && ShowContentFolder(State, From.back(), Assets))
+	{
+		From.pop_back();
+		PushContentHistory(To, std::move(Previous));
+	}
 }
 
 namespace
@@ -942,6 +984,17 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		bool bNewFolder = bCanCreateFolder && bFolderShortcutsAvailable && ImGui::IsKeyPressed(ImGuiKey_N, false);
 		bool bOpenDirectory = Assets && bFolderShortcutsAvailable && ImGui::IsKeyPressed(ImGuiKey_O, false);
 		const ImGuiIO& IO = ImGui::GetIO();
+		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+		{
+			// The mouse's side buttons, as in a file manager.
+			constexpr ImGuiMouseButton BackButton = 3;
+			constexpr ImGuiMouseButton ForwardButton = 4;
+			if (ImGui::IsMouseClicked(BackButton) || ImGui::IsMouseClicked(ForwardButton))
+			{
+				StepContentFolderHistory(State, ImGui::IsMouseClicked(ForwardButton), Assets);
+			}
+		}
+
 		const bool bGridShortcutsAvailable = !IO.AppFocusLost && !IO.WantTextInput && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && State.RenamingFolder.empty() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 		if (bGridShortcutsAvailable && IO.KeyMods == ImGuiMod_Ctrl && ImGui::IsKeyPressed(ImGuiKey_A, false))
 		{

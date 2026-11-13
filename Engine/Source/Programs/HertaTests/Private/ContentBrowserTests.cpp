@@ -471,4 +471,36 @@ TEST_CASE("Content browser selects several tiles with Ctrl, Shift, and select al
 	CHECK(State.SelectedAssets.empty());
 	CHECK(State.SelectedFolders.empty());
 }
+
+TEST_CASE("Content browser steps back and forward through visited folders")
+{
+	FContentBrowserState State;
+	State.Refresh(MakeContentOptions(), 1);
+	NavigateContentFolder(State, "Game/Models", nullptr);
+	NavigateContentFolder(State, "Game/Models/Sub", nullptr);
+	NavigateContentFolder(State, "Game/Models/Sub", nullptr);
+	CHECK(State.BackHistory == std::vector<std::string>{"Game", "Game/Models"});
+
+	StepContentFolderHistory(State, false, nullptr);
+	CHECK(State.Folder == "Game/Models");
+	StepContentFolderHistory(State, false, nullptr);
+	CHECK(State.Folder == "Game");
+	StepContentFolderHistory(State, false, nullptr);
+	CHECK(State.Folder == "Game");
+	StepContentFolderHistory(State, true, nullptr);
+	CHECK(State.Folder == "Game/Models");
+
+	// Browsing somewhere new drops the forward steps, and folders that are gone are skipped.
+	NavigateContentFolder(State, "Game/Textures", nullptr);
+	CHECK(State.ForwardHistory.empty());
+	std::vector<FPreviewAssetOption> Options = MakeContentOptions();
+	std::erase_if(Options, [](const FPreviewAssetOption& Option)
+	{
+		return Option.Label.starts_with("Game/Models/");
+	});
+
+	State.Refresh(Options, 2);
+	StepContentFolderHistory(State, false, nullptr);
+	CHECK(State.Folder == "Game");
+}
 }

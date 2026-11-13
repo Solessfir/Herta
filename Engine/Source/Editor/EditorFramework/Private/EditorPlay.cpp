@@ -1015,7 +1015,7 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 	if (Tool == "ui_click" && Arguments.Has("x") && Arguments.Has("y"))
 	{
 		// A position reaches what is drawn inside an item without being one, such as the Outliner's eye and lock.
-		constexpr std::array<std::string_view, 3> Buttons{"left", "right", "middle"};
+		constexpr std::array<std::string_view, 5> Buttons{"left", "right", "middle", "back", "forward"};
 		const auto Pressed = std::ranges::find(Buttons, Arguments.Text("button"));
 		Editor.ToolUI->QueueClick(static_cast<float>(Arguments.Number("x", 0.)), static_cast<float>(Arguments.Number("y", 0.)), Pressed == Buttons.end() ? 0 : static_cast<int>(Pressed - Buttons.begin()), Arguments.Flag("double"));
 		Editor.AutomationUiReplies.push_back({.Id = Request.Id, .FramesLeft = 4, .Output = "{\"clicked\": true}"});
@@ -1049,7 +1049,7 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 		}
 
 		const std::string_view Button = Arguments.Text("button");
-		constexpr std::array<std::string_view, 3> Buttons{"left", "right", "middle"};
+		constexpr std::array<std::string_view, 5> Buttons{"left", "right", "middle", "back", "forward"};
 		const auto Pressed = std::ranges::find(Buttons, Button);
 		const int MouseButton = Pressed == Buttons.end() ? 0 : static_cast<int>(Pressed - Buttons.begin());
 		Editor.ToolUI->QueueClick(Item.Bounds.X + Item.Bounds.Width * 0.5f, Item.Bounds.Y + Item.Bounds.Height * 0.5f, MouseButton, Arguments.Flag("double"));
