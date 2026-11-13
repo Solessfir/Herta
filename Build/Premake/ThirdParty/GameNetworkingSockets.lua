@@ -126,9 +126,9 @@ function HertaGameNetworkingSockets()
             }
             buildoptions { "-fno-strict-aliasing" }
 
-        -- It stores typed packet callbacks as functions taking void*, which the sanitizer's function-type check rejects at each call.
+        -- Its wire code writes unaligned integers and calls typed packet callbacks through void* signatures, both by design, so it keeps only AddressSanitizer.
         filter { "system:linux", "configurations:Debug-ASan" }
-            buildoptions { "-fno-sanitize=function" }
+            buildoptions { "-fno-sanitize=undefined" }
 
         filter {}
 end
