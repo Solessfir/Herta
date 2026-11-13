@@ -19,6 +19,12 @@ function HertaRecast()
             end
 
             externalincludedirs { path.join(RecastRoot, "Recast/Include"), path.join(RecastRoot, "Detour/Include"), path.join(RecastRoot, "DetourCrowd/Include"), path.join(RecastRoot, "DetourTileCache/Include") }
+
+            -- Detour packs tile data at 4-byte alignment, so with 64-bit references its links sit at addresses x86 reads fine but the sanitizer flags.
+            filter { "system:linux", "configurations:Debug-ASan" }
+                buildoptions { "-fno-sanitize=alignment" }
+
+            filter {}
     end
 
     -- Games link only Detour; Recast runs where navigation is cooked.
