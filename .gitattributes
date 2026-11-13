@@ -2,6 +2,10 @@
 
 # Vendored third-party files stay identical to upstream, so repository whitespace checks skip them.
 External/** -whitespace
+# Upstream license texts, kept verbatim.
+LICENSE.txt -whitespace
+License.txt -whitespace
+OFL.txt -whitespace
 
 *.bat text eol=crlf
 *.cmd text eol=crlf

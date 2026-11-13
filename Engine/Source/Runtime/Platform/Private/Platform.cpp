@@ -302,8 +302,9 @@ extern "C" void WriteCrashReport(const int Signal)
 		std::size_t LineSize = 7;
 		LineSize += AppendNumber(Line + LineSize, static_cast<std::uint64_t>(Signal), 10);
 		Line[LineSize++] = '\n';
-		(void)write(Report, CrashReporter.Header.data(), CrashReporter.HeaderSize);
-		(void)write(Report, Line, LineSize);
+		// A failed write leaves nothing better to do inside a signal handler, and GCC ignores a void cast on warn_unused_result.
+		[[maybe_unused]] const ssize_t HeaderWritten = write(Report, CrashReporter.Header.data(), CrashReporter.HeaderSize);
+		[[maybe_unused]] const ssize_t LineWritten = write(Report, Line, LineSize);
 		// glibc's backtrace is not strictly async-signal-safe, but it is what a crash leaves to go on; the report is written first.
 		void* Frames[64];
 		backtrace_symbols_fd(Frames, backtrace(Frames, 64), Report);

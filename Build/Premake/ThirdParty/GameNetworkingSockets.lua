@@ -86,13 +86,13 @@ function HertaGameNetworkingSockets()
         filter { "files:**.proto", "system:windows" }
             buildcommands {
                 'if not exist "' .. path.translate(Generated) .. '" mkdir "' .. path.translate(Generated) .. '"',
-                '"' .. path.translate(path.join(BinaryRoot, "Protoc.exe")) .. '" --cpp_out="' .. path.translate(Generated) .. '" -I"' .. path.translate(path.join(Root, "common")) .. '" "%{file.abspath}"',
+                '"' .. path.translate(path.join(BinaryRoot, "Protoc.exe")) .. '" --cpp_out="' .. path.translate(Generated) .. '" -I"%{file.directory}" "%{file.abspath}"',
             }
 
         filter { "files:**.proto", "system:linux" }
             buildcommands {
                 'mkdir -p "' .. Generated .. '"',
-                '"' .. path.join(BinaryRoot, "Protoc") .. '" --cpp_out="' .. Generated .. '" -I"' .. path.join(Root, "common") .. '" "%{file.abspath}"',
+                '"' .. path.join(BinaryRoot, "Protoc") .. '" --cpp_out="' .. Generated .. '" -I"%{file.directory}" "%{file.abspath}"',
             }
 
         -- Its headers insist on exactly one of these on MSVC; the debug runtime already defines _DEBUG.

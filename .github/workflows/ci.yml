@@ -167,7 +167,8 @@ jobs:
         if: matrix.platform == 'windows' && matrix.configuration == 'Development'
         shell: pwsh
         run: |
-          $Premake = & .\Scripts\Windows\Setup.ps1 -PrintPremakePath
+          # Setup prints the path to the console stream, which only a child process captures.
+          $Premake = powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\Scripts\Windows\Setup.ps1 -PrintPremakePath
           $env:HERTA_VULKAN_SDK = (Get-ChildItem SDK/Windows/Vulkan -Directory | Sort-Object Name | Select-Object -Last 1).FullName
           & $Premake --file=premake5.lua --project=Games/Sandbox/Sandbox.hertaproject vs2026
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

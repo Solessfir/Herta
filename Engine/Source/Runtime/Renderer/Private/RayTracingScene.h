@@ -70,14 +70,14 @@ private:
 	struct FReleased
 	{
 		std::uint64_t Serial = 0;
-		FResourceTableHandle Table;
-		std::unordered_map<const IRhiBuffer*, FMeshEntry> Meshes;
-		std::unordered_map<const IRhiTexture*, FTextureEntry> Textures;
-		FAccelerationStructureHandle TopLevel;
+		FResourceTableHandle Table{};
+		std::unordered_map<const IRhiBuffer*, FMeshEntry> Meshes{};
+		std::unordered_map<const IRhiTexture*, FTextureEntry> Textures{};
+		FAccelerationStructureHandle TopLevel{};
 		// A mesh's bottom level replaced by one that refits.
-		FAccelerationStructureHandle BottomLevel;
-		FBufferHandle Sections;
-		FBufferHandle Materials;
+		FAccelerationStructureHandle BottomLevel{};
+		FBufferHandle Sections{};
+		FBufferHandle Materials{};
 	};
 
 	[[nodiscard]] std::expected<std::uint32_t, FPresentationError> AllocateSlot();
