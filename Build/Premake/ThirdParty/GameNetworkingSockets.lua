@@ -126,5 +126,9 @@ function HertaGameNetworkingSockets()
             }
             buildoptions { "-fno-strict-aliasing" }
 
+        -- It stores typed packet callbacks as functions taking void*, which the sanitizer's function-type check rejects at each call.
+        filter { "system:linux", "configurations:Debug-ASan" }
+            buildoptions { "-fno-sanitize=function" }
+
         filter {}
 end
