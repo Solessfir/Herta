@@ -3013,10 +3013,20 @@ int GraphemeInputCallback(ImGuiInputTextCallbackData* const Data)
 	GraphemeInput.Cursor = Data->CursorPos;
 	return 0;
 }
+
+// A field being edited shows its caret, so the keyboard navigation ring around it only adds a border; arrow keys that move through a field's results would otherwise bring it back.
+void HideNavCursorWhileEditing(const char* const Id)
+{
+	if (ImGui::GetActiveID() == ImGui::GetID(Id))
+	{
+		ImGui::SetNavCursorVisible(false);
+	}
+}
 }
 
 bool ToolUIInputText(const char* const Id, std::string& Text, const char* const Hint, const float Width)
 {
+	HideNavCursorWhileEditing(Id);
 	ImGui::SetNextItemWidth(Width > 0.f ? Width : -FLT_MIN);
 	constexpr ImGuiInputTextFlags Flags = ImGuiInputTextFlags_CallbackResize | ImGuiInputTextFlags_CallbackEdit | ImGuiInputTextFlags_CallbackAlways;
 	return ImGui::InputTextWithHint(Id, Hint ? Hint : "", Text.data(), Text.capacity() + 1, Flags, GraphemeInputCallback, &Text);
@@ -3764,6 +3774,7 @@ bool FToolUIContext::DrawSearchField(const char* const Label, const char* const 
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetStyle().FrameRounding);
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.f * Scale);
 	ImGui::PushStyleColor(ImGuiCol_Border, ToImGuiColor(ToolUITheme::Border));
+	HideNavCursorWhileEditing(Label);
 	const bool bChanged = ImGui::InputTextWithHint(Label, Hint, Buffer, BufferSize);
 	ImGui::PopStyleColor();
 	ImGui::PopStyleVar(3);

@@ -136,6 +136,8 @@ void FEditorFramework::FImplementation::DrawCommandPalette()
 	ImGui::PushStyleVar(ImGuiStyleVar_SelectableRounding, ImGui::GetStyle().FrameRounding);
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * Scale, 1.f * Scale});
 	ImGui::Dummy({0.f, 4.f * Scale});
+	// Up and Down move the palette's own selection; rows that ImGui could navigate to would take focus from the query and stop typing.
+	ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
 	for (int Row = 0; Row < Count; ++Row)
 	{
 		const FPaletteRow& Entry = Rows[static_cast<std::size_t>(Row)];
@@ -177,6 +179,7 @@ void FEditorFramework::FImplementation::DrawCommandPalette()
 		ImGui::TextDisabled("%s", Localization.Format(Editor::Palette_Empty).c_str());
 	}
 
+	ImGui::PopItemFlag();
 	ImGui::PopStyleVar(2);
 	ImGui::Dummy({0.f, 4.f * Scale});
 	ImGui::Separator();
