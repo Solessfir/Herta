@@ -628,7 +628,7 @@ void FAnimationStateMachine::Update(const float DeltaSeconds)
 		Advance(Base, Step);
 	}
 
-	if (Previous)
+	if (Previous && Transition)
 	{
 		Advance(*Previous, Step);
 		TransitionElapsed += Step;
@@ -683,7 +683,7 @@ void FAnimationStateMachine::Update(const float DeltaSeconds)
 
 	std::ranges::fill(Triggers, false);
 	Layers.clear();
-	const float Alpha = Previous ? std::clamp(TransitionElapsed / Desc.Transitions[*Transition].DurationSeconds, 0.f, 1.f) : 1.f;
+	const float Alpha = Previous && Transition ? std::clamp(TransitionElapsed / Desc.Transitions[*Transition].DurationSeconds, 0.f, 1.f) : 1.f;
 	// Upper-body states keep the whole body while standing and give the legs to the base as the character moves.
 	const float Motion = GetBaseMotion();
 	float UpperBody = 0.f;

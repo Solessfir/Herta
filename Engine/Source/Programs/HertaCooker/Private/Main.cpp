@@ -46,9 +46,16 @@ constexpr std::string_view Usage = R"(HertaCooker cooks a game's content for dis
   verify --package=<file.hpak> [--public-keys=<file>]
       Checks a package's index, signature, and every chunk.)";
 
-void Report(const std::string_view Message)
+void Report(const std::string_view Message) noexcept
 {
-	std::println(stderr, "HertaCooker: {}", Message);
+	try
+	{
+		std::println(stderr, "HertaCooker: {}", Message);
+	}
+	catch (...) // NOLINT(bugprone-empty-catch)
+	{
+		// Reporting must not let a formatting exception escape main.
+	}
 }
 
 [[nodiscard]] std::string_view Find(const std::span<char* const> Arguments, const std::string_view Prefix)
@@ -531,6 +538,11 @@ int main(const int ArgumentCount, char** const Arguments)
 	catch (const std::exception& Exception)
 	{
 		Herta::Report(Exception.what());
+		return 1;
+	}
+	catch (...)
+	{
+		Herta::Report("unknown error");
 		return 1;
 	}
 }

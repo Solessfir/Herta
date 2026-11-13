@@ -13,6 +13,12 @@ function HertaOzz()
             warnings "Off"
             files(Sources)
             includedirs { path.join(OzzRoot, "include"), path.join(OzzRoot, "src") }
+
+            -- MemoryStream copies empty keyframe arrays with memcpy from a null pointer, which is harmless at size zero.
+            filter { "system:linux", "configurations:Debug-ASan" }
+                buildoptions { "-fno-sanitize=nonnull-attribute" }
+
+            filter {}
     end
 
     OzzProject("OzzBase", {

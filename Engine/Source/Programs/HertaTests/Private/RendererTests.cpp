@@ -57,7 +57,7 @@ struct FCubeScene
 std::expected<std::unique_ptr<Herta::FMeshRenderer>, Herta::FPresentationError> CreateDebugRenderer(FTestGraphicsDevice& Device)
 {
 	Herta::FShaderAsset Vertex;
-	Vertex.Bytecode = {1};
+	Vertex.Bytecode.assign(1, 1);
 	Herta::FShaderAsset Fragment = Vertex;
 	Fragment.Stage = Herta::EShaderStage::Fragment;
 	return Herta::FMeshRenderer::Create(Device, {}, {}, Vertex, Fragment);
@@ -66,7 +66,7 @@ std::expected<std::unique_ptr<Herta::FMeshRenderer>, Herta::FPresentationError> 
 std::expected<std::unique_ptr<Herta::FMeshRenderer>, Herta::FPresentationError> CreateGridRenderer(FTestGraphicsDevice& Device, const bool bOnlyGridVertexShader = false)
 {
 	Herta::FShaderAsset Vertex;
-	Vertex.Bytecode = {1};
+	Vertex.Bytecode.assign(1, 1);
 	Herta::FShaderAsset Fragment = Vertex;
 	Fragment.Stage = Herta::EShaderStage::Fragment;
 	Herta::FShaderAsset DebugVertex = Vertex;
@@ -598,7 +598,7 @@ TEST_CASE("Mesh renderer submits ten thousand shared cubes as one indexed instan
 	FTestGraphicsDevice Device;
 	const auto Cube = CreateTestCube(Device);
 	Herta::FShaderAsset InstancedVertex;
-	InstancedVertex.Bytecode = {1};
+	InstancedVertex.Bytecode.assign(1, 1);
 	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex);
 	REQUIRE(Renderer);
 	std::vector<Herta::FMatrix4> Models;
@@ -655,7 +655,7 @@ TEST_CASE("Mesh renderer culls instances outside the camera frustum")
 	FTestGraphicsDevice Device;
 	const auto Cube = CreateTestCube(Device);
 	Herta::FShaderAsset InstancedVertex;
-	InstancedVertex.Bytecode = {1};
+	InstancedVertex.Bytecode.assign(1, 1);
 	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex);
 	REQUIRE(Renderer);
 	// In front, behind, far to the side, and straddling the left edge of the view.
@@ -683,10 +683,10 @@ TEST_CASE("Selection outline rasterizes the visible selection as one instanced d
 	FTestGraphicsDevice Device;
 	const auto Cube = CreateTestCube(Device);
 	Herta::FShaderAsset InstancedVertex;
-	InstancedVertex.Bytecode = {1};
+	InstancedVertex.Bytecode.assign(1, 1);
 	Herta::FVisualShaderSet Visuals;
-	Visuals.FullscreenVertex.Bytecode = {1};
-	Visuals.SelectionOutline.Bytecode = {1};
+	Visuals.FullscreenVertex.Bytecode.assign(1, 1);
+	Visuals.SelectionOutline.Bytecode.assign(1, 1);
 	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex, Visuals);
 	REQUIRE(Renderer);
 	// The third selected cube is behind the camera, and the fourth cube is not selected.
@@ -725,7 +725,7 @@ TEST_CASE("Mesh instancing groups shared sections and skips null meshes without 
 	const auto Second = CreateTestCube(Device);
 	REQUIRE(First);
 	Herta::FShaderAsset InstancedVertex;
-	InstancedVertex.Bytecode = {1};
+	InstancedVertex.Bytecode.assign(1, 1);
 	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex);
 	REQUIRE(Renderer);
 	const std::array Models{Herta::FMatrix4::Translation({0.1f, 0, 0}), Herta::FMatrix4::Translation({0.2f, 0, 0}), Herta::FMatrix4::Translation({0.3f, 0, 0}), Herta::FMatrix4::Translation({0.4f, 0, 0})};
@@ -766,7 +766,7 @@ TEST_CASE("Screen occlusion runs its compute passes between the depth prepass an
 	FVisualShaderSet Visuals;
 	for (FShaderAsset* Shader : {&Visuals.FullscreenVertex, &Visuals.ShadowFragment, &Visuals.GtaoDepthCompute, &Visuals.GtaoCompute, &Visuals.GtaoDenoiseCompute})
 	{
-		Shader->Bytecode = {1};
+		Shader->Bytecode.assign(1, 1);
 	}
 
 	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
@@ -823,7 +823,7 @@ TEST_CASE("Light clusters are built before any mesh pass binds them")
 	FVisualShaderSet Visuals;
 	for (FShaderAsset* Shader : {&Visuals.FullscreenVertex, &Visuals.ShadowFragment, &Visuals.LightClustersCompute})
 	{
-		Shader->Bytecode = {1};
+		Shader->Bytecode.assign(1, 1);
 	}
 
 	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
@@ -875,11 +875,11 @@ TEST_CASE("Occlusion culling splits the depth prepass around the depth hierarchy
 	FVisualShaderSet Visuals;
 	for (FShaderAsset* Shader : {&Visuals.FullscreenVertex, &Visuals.ShadowFragment, &Visuals.DepthHierarchyCompute, &Visuals.OcclusionCullCompute})
 	{
-		Shader->Bytecode = {1};
+		Shader->Bytecode.assign(1, 1);
 	}
 
 	FShaderAsset InstancedVertex;
-	InstancedVertex.Bytecode = {1};
+	InstancedVertex.Bytecode.assign(1, 1);
 	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex, Visuals);
 	REQUIRE(Renderer);
 	const auto PipelineName = [](const FIndexedDraw& Draw)
@@ -931,7 +931,7 @@ TEST_CASE("Compute SMAA lists edge pixels and runs the weight pass indirectly")
 	FVisualShaderSet Visuals;
 	for (FShaderAsset* Shader : {&Visuals.FullscreenVertex, &Visuals.SmaaEdgeListCompute, &Visuals.SmaaEdgeWeightsCompute})
 	{
-		Shader->Bytecode = {1};
+		Shader->Bytecode.assign(1, 1);
 	}
 
 	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
@@ -959,7 +959,7 @@ TEST_CASE("Material shader sharing reuses compatible pipelines and counts only s
 	FTestGraphicsDevice OtherDevice;
 	FCubeScene Scene(Device);
 	FVisualShaderSet Visuals;
-	Visuals.FullscreenVertex.Bytecode = {1};
+	Visuals.FullscreenVertex.Bytecode.assign(1, 1);
 	const auto Source = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
 	const auto Preview = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
 	const auto Other = FMeshRenderer::Create(OtherDevice, {}, {}, {}, {}, {}, {}, {}, Visuals);
@@ -978,7 +978,7 @@ TEST_CASE("Material shader sharing reuses compatible pipelines and counts only s
 		Result.Stage = Stage;
 		Result.EntryPoint = EntryPoint;
 		Result.Bindings = {{.Name = "Visual", .Type = EShaderBindingType::ConstantBuffer, .Binding = 64, .ByteSize = VisualUniformBytes}};
-		Result.Bytecode = {1};
+		Result.Bytecode.assign(1, 1);
 		return Result;
 	};
 
@@ -1066,12 +1066,12 @@ TEST_CASE("Material shader sharing keeps a renderer without instancing off the i
 	FCubeScene Scene(Device);
 	// The masked shadow fragment shader turns on the depth prepass, as it does for editor thumbnails.
 	FVisualShaderSet Visuals;
-	Visuals.FullscreenVertex.Bytecode = {1};
-	Visuals.ShadowFragment.Bytecode = {1};
+	Visuals.FullscreenVertex.Bytecode.assign(1, 1);
+	Visuals.ShadowFragment.Bytecode.assign(1, 1);
 	FShaderAsset InstancedVertex;
 	InstancedVertex.Stage = EShaderStage::Vertex;
 	InstancedVertex.EntryPoint = "instancedVertexMain";
-	InstancedVertex.Bytecode = {1};
+	InstancedVertex.Bytecode.assign(1, 1);
 	const auto Editor = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex, Visuals);
 	const auto Thumbnail = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
 	REQUIRE(Editor);
@@ -1081,7 +1081,7 @@ TEST_CASE("Material shader sharing keeps a renderer without instancing off the i
 	Vertex.Stage = EShaderStage::Vertex;
 	Vertex.EntryPoint = "vertexMain";
 	Vertex.Bindings = {{.Name = "Visual", .Type = EShaderBindingType::ConstantBuffer, .Binding = 64, .ByteSize = VisualUniformBytes}};
-	Vertex.Bytecode = {1};
+	Vertex.Bytecode.assign(1, 1);
 	FShaderAsset Instanced = Vertex;
 	Instanced.EntryPoint = "instancedVertexMain";
 	FShaderAsset Fragment = Vertex;
@@ -1106,8 +1106,8 @@ TEST_CASE("Custom material shaders draw their own depth prepass and shade agains
 	FTestGraphicsDevice Device;
 	FCubeScene Scene(Device);
 	FVisualShaderSet Visuals;
-	Visuals.FullscreenVertex.Bytecode = {1};
-	Visuals.ShadowFragment.Bytecode = {1};
+	Visuals.FullscreenVertex.Bytecode.assign(1, 1);
+	Visuals.ShadowFragment.Bytecode.assign(1, 1);
 	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
 	REQUIRE(Renderer);
 
@@ -1115,7 +1115,7 @@ TEST_CASE("Custom material shaders draw their own depth prepass and shade agains
 	Vertex.Stage = EShaderStage::Vertex;
 	Vertex.EntryPoint = "vertexMain";
 	Vertex.Bindings = {{.Name = "Visual", .Type = EShaderBindingType::ConstantBuffer, .Binding = 64, .ByteSize = VisualUniformBytes}};
-	Vertex.Bytecode = {1};
+	Vertex.Bytecode.assign(1, 1);
 	FShaderAsset Instanced = Vertex;
 	Instanced.EntryPoint = "instancedVertexMain";
 	FShaderAsset Fragment = Vertex;
@@ -1202,10 +1202,10 @@ TEST_CASE("Masked custom materials cut out their own shadows while opaque ones k
 	FTestGraphicsDevice Device;
 	FCubeScene Scene(Device);
 	FVisualShaderSet Visuals;
-	Visuals.FullscreenVertex.Bytecode = {1};
-	Visuals.ShadowFragment.Bytecode = {1};
-	Visuals.ShadowVertex.Bytecode = {1};
-	Visuals.ShadowInstancedVertex.Bytecode = {1};
+	Visuals.FullscreenVertex.Bytecode.assign(1, 1);
+	Visuals.ShadowFragment.Bytecode.assign(1, 1);
+	Visuals.ShadowVertex.Bytecode.assign(1, 1);
+	Visuals.ShadowInstancedVertex.Bytecode.assign(1, 1);
 	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
 	REQUIRE(Renderer);
 
@@ -1213,7 +1213,7 @@ TEST_CASE("Masked custom materials cut out their own shadows while opaque ones k
 	Vertex.Stage = EShaderStage::Vertex;
 	Vertex.EntryPoint = "vertexMain";
 	Vertex.Bindings = {{.Name = "Visual", .Type = EShaderBindingType::ConstantBuffer, .Binding = 64, .ByteSize = VisualUniformBytes}};
-	Vertex.Bytecode = {1};
+	Vertex.Bytecode.assign(1, 1);
 	FShaderAsset Instanced = Vertex;
 	Instanced.EntryPoint = "instancedVertexMain";
 	FShaderAsset Fragment = Vertex;
@@ -1269,12 +1269,12 @@ TEST_CASE("Camera-only models skip shadows and models hidden from the camera onl
 	FTestGraphicsDevice Device;
 	FCubeScene Scene(Device);
 	FVisualShaderSet Visuals;
-	Visuals.FullscreenVertex.Bytecode = {1};
-	Visuals.ShadowFragment.Bytecode = {1};
-	Visuals.ShadowVertex.Bytecode = {1};
-	Visuals.ShadowInstancedVertex.Bytecode = {1};
+	Visuals.FullscreenVertex.Bytecode.assign(1, 1);
+	Visuals.ShadowFragment.Bytecode.assign(1, 1);
+	Visuals.ShadowVertex.Bytecode.assign(1, 1);
+	Visuals.ShadowInstancedVertex.Bytecode.assign(1, 1);
 	FShaderAsset Vertex;
-	Vertex.Bytecode = {1};
+	Vertex.Bytecode.assign(1, 1);
 	const auto Renderer = FMeshRenderer::Create(Device, Vertex, Vertex, {}, {}, {}, {}, {}, Visuals);
 	REQUIRE(Renderer);
 
@@ -1350,7 +1350,7 @@ TEST_CASE("Bloom downsamples and upsamples its pyramid before tone mapping and s
 	FVisualShaderSet Visuals;
 	for (FShaderAsset* Shader : {&Visuals.FullscreenVertex, &Visuals.BloomCompute})
 	{
-		Shader->Bytecode = {1};
+		Shader->Bytecode.assign(1, 1);
 	}
 
 	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
@@ -1377,13 +1377,13 @@ TEST_CASE("Deforming meshes give the velocity prepass their previous positions")
 	FVisualShaderSet Visuals;
 	for (FShaderAsset* Shader : {&Visuals.FullscreenVertex, &Visuals.ShadowFragment, &Visuals.DepthVelocityFragment, &Visuals.DepthVelocityVertex, &Visuals.MotionVectorsCompute})
 	{
-		Shader->Bytecode = {1};
+		Shader->Bytecode.assign(1, 1);
 	}
 
 	// The cube's own vertices, before the renderer uploads anything else.
 	std::vector<FCookedVertex> Moved(Device.Vertices.size());
 	FShaderAsset InstancedVertex;
-	InstancedVertex.Bytecode = {1};
+	InstancedVertex.Bytecode.assign(1, 1);
 	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex, Visuals);
 	REQUIRE(Renderer);
 	const auto VelocityBuffer = [&]

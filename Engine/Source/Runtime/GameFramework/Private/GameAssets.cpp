@@ -316,7 +316,8 @@ std::expected<FStagedSession, FGameError> CreateStagedSession(const std::filesys
 		return Entity.Player && Entity.Character && Entity.Mesh;
 	});
 
-	std::shared_ptr<const FCookedModel> Character = Player != Level.Entities.end() && Player->Mesh ? Staged.Assets->FindSkinnedModel(Player->Mesh->Asset) : nullptr;
+	const auto* const PlayerMesh = Player != Level.Entities.end() ? &Player->Mesh : nullptr;
+	std::shared_ptr<const FCookedModel> Character = PlayerMesh && *PlayerMesh ? Staged.Assets->FindSkinnedModel((*PlayerMesh)->Asset) : nullptr;
 	if (Player != Level.Entities.end() && !Character)
 	{
 		Staged.Warnings.push_back(std::format("{} has no skinned model; the player is the bare capsule", Player->Name));
