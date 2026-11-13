@@ -39,6 +39,8 @@ constexpr ImU32 Yellow = IM_COL32(255, 255, 0, 255);
 void InitializeDrawList(ImDrawList& DrawList)
 {
 	DrawList._ResetForNewFrame();
+	// Legacy strokes draw each unrounded rectangle as one quad, so indices map straight to rectangles; the arc tables a frame would set up are not needed.
+	DrawList.Flags = ImDrawFlags_StrokeLegacy;
 	DrawList.PushClipRect({0.f, 0.f}, {100.f, 100.f});
 	DrawList.PushTexture(ImTextureRef(static_cast<ImTextureID>(1)));
 }

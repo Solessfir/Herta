@@ -25,7 +25,7 @@ inline bool ViewportIconButton(const char* const Id, const EToolUIMenuIcon Icon,
 	Draw->AddRectFilled(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImVec4{1, 1, 1, Highlight}), Size.y * 0.5f);
 	if (ImGui::IsItemFocused() && ImGui::GetIO().NavVisible)
 	{
-		Draw->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), Size.y * 0.5f, 0, Scale);
+		Draw->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), Size.y * 0.5f, Scale);
 	}
 
 	const ImU32 Color = Icon == EToolUIMenuIcon::Play ? IM_COL32(105, 200, 139, 255) : ImGui::GetColorU32(bSelected || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);

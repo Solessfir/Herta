@@ -75,7 +75,7 @@ void DrawHistoryGraph(const char* const Id, const std::span<const FGraphSeries> 
 			Draw->PathLineTo({Start + static_cast<float>(Index) * Step, Y(Entry.History->At(Index))});
 		}
 
-		Draw->PathStroke(Entry.Color, 0, 1.5f * Scale);
+		Draw->PathStroke(Entry.Color, 1.5f * Scale);
 	}
 
 	if (ImGui::IsItemHovered())

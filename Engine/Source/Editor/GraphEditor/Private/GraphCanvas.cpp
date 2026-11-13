@@ -882,7 +882,7 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		const bool bSelected = Contains(Selection, Comment.Id);
 		DrawList->AddRectFilled(Min, Max, WithAlpha(ToolUITheme::NeutralAccent, 14), CommentRounding);
 		DrawList->AddRectFilled(Min, ImVec2(Max.x, TitleBottom), WithAlpha(ToolUITheme::NeutralAccent, 38), CommentRounding, ImDrawFlags_RoundCornersTop);
-		DrawList->AddRect(Min, Max, bSelected ? ToImU32(ToolUITheme::NeutralAccentHover) : WithAlpha(ToolUITheme::NeutralAccent, CommentHit == Comment.Id ? 120 : 60), CommentRounding, 0, bSelected ? 2.f : 1.f);
+		DrawList->AddRect(Min, Max, bSelected ? ToImU32(ToolUITheme::NeutralAccentHover) : WithAlpha(ToolUITheme::NeutralAccent, CommentHit == Comment.Id ? 120 : 60), CommentRounding, bSelected ? 2.f : 1.f);
 		if (bLabels)
 		{
 			const ImVec4 Clip(Min.x, Min.y, Max.x - Metrics.Padding * View.Zoom, TitleBottom);
@@ -1008,12 +1008,12 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		const FToolUIColor Outline = Problem != Problems.end() ? (Problem->second.first == EGraphSeverity::Error ? ToolUITheme::Error : ToolUITheme::Warning) : bSelected ? ToolUITheme::NeutralAccentHover
 		                                                                                                                                                    : bHot        ? ToolUITheme::Border
 		                                                                                                                                                                  : ToolUITheme::BorderSoft;
-		DrawList->AddRect(Min, Max, ToImU32(Outline), Rounding, 0, bSelected || Problem != Problems.end() ? 2.f : 1.f);
+		DrawList->AddRect(Min, Max, ToImU32(Outline), Rounding, bSelected || Problem != Problems.end() ? 2.f : 1.f);
 		if (Contains(Active, Node.Id))
 		{
 			// Outside the selection and problem outline, so a live node still shows both.
 			const float Inset = -3.f * View.Zoom;
-			DrawList->AddRect(ImVec2(Min.x + Inset, Min.y + Inset), ImVec2(Max.x - Inset, Max.y - Inset), ToImU32(LiveColor), Rounding - Inset, 0, std::max(2.f, 2.5f * View.Zoom));
+			DrawList->AddRect(ImVec2(Min.x + Inset, Min.y + Inset), ImVec2(Max.x - Inset, Max.y - Inset), ToImU32(LiveColor), Rounding - Inset, std::max(2.f, 2.5f * View.Zoom));
 		}
 
 		if (bLabels)

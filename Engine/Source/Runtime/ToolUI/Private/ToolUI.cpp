@@ -108,12 +108,12 @@ void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleB
 			DrawList.PathArcToFast({CenterX + 4.f * Scale, CenterY - 4.f * Scale}, Scale, 9, 12);
 			DrawList.PathArcToFast({CenterX + 4.f * Scale, CenterY + 2.f * Scale}, Scale, 0, 3);
 			DrawList.PathLineTo({CenterX + 3.f * Scale, CenterY + 3.f * Scale});
-			DrawList.PathStroke(GlyphColor, 0, Scale);
-			DrawList.AddRect({CenterX - 5.f * Scale, CenterY - 3.f * Scale}, {CenterX + 3.f * Scale, CenterY + 5.f * Scale}, GlyphColor, Scale, 0, Scale);
+			DrawList.PathStroke(GlyphColor, Scale);
+			DrawList.AddRect({CenterX - 5.f * Scale, CenterY - 3.f * Scale}, {CenterX + 3.f * Scale, CenterY + 5.f * Scale}, GlyphColor, Scale, Scale);
 		}
 		else
 		{
-			DrawList.AddRect({CenterX - 5.f * Scale, CenterY - 5.f * Scale}, {CenterX + 5.f * Scale, CenterY + 5.f * Scale}, GlyphColor, 0.f, 0, Scale);
+			DrawList.AddRect({CenterX - 5.f * Scale, CenterY - 5.f * Scale}, {CenterX + 5.f * Scale, CenterY + 5.f * Scale}, GlyphColor, 0.f, Scale);
 		}
 	}
 
@@ -194,6 +194,9 @@ void ApplyBaseStyle(ImGuiStyle& Style, const FToolUIThemeMetrics& Metrics)
 	Style.TabBarBorderSize = 0.f;
 	Style.TabBarOverlineSize = 0.f;
 	Style.TabCloseButtonMinWidthSelected = 0.f;
+	// A thin chevron, so tree, combo, and submenu arrows read as one stroke style.
+	Style.SymbolArrowSizeFactor = {0.64f, 0.32f};
+	Style.SymbolArrowThicknessFactor = 1.f / 6.f;
 	// Wide enough for the canvas to show between docked panels, so each reads as its own surface.
 	Style.DockingSeparatorSize = 5.f;
 	Style.SeparatorSize = 1.f;
@@ -531,7 +534,7 @@ void DrawGlassSurface(ImDrawList& DrawList, const ImGuiViewport& Viewport, const
 	DrawList.AddRectFilled(Minimum, Maximum, ImGui::ColorConvertFloat4ToU32(WithAlpha(Fill, ClampToolUIUnit(Appearance.PanelOpacity))), Radius);
 	if (Radius > 0.f)
 	{
-		DrawList.AddRect(Minimum, Maximum, ImGui::ColorConvertFloat4ToU32(WithAlpha(ToolUITheme::NeutralAccent, ClampToolUIUnit(Appearance.PanelOpacity) * 0.28f)), Radius, 0, Viewport.DpiScale);
+		DrawList.AddRect(Minimum, Maximum, ImGui::ColorConvertFloat4ToU32(WithAlpha(ToolUITheme::NeutralAccent, ClampToolUIUnit(Appearance.PanelOpacity) * 0.28f)), Radius, Viewport.DpiScale);
 	}
 }
 
@@ -622,7 +625,7 @@ void FIconPen::Stroke(const std::span<const ImVec2> Points, const float Width, c
 	}
 
 	const ImU32 Ink = Tone(Opacity);
-	Draw.AddPolyline(Placed.data(), static_cast<int>(Placed.size()), Ink, bClosed ? ImDrawFlags_Closed : ImDrawFlags_None, Width * Scale);
+	Draw.AddPolyline(Placed.data(), static_cast<int>(Placed.size()), Ink, Width * Scale, bClosed ? ImDrawFlags_Closed : ImDrawFlags_None);
 	// Discs round the caps and sharp joins, which ImGui draws square; the shallow joins of a tessellated arc need none.
 	const std::size_t Count = Placed.size();
 	for (std::size_t Index = 0; Index < Count; ++Index)
@@ -665,7 +668,7 @@ void FIconPen::Ring(const float X, const float Y, const float Radius, const floa
 
 void FIconPen::Frame(const float X0, const float Y0, const float X1, const float Y1, const float Rounding, const float Width, const float Opacity) const
 {
-	Draw.AddRect(At(X0, Y0), At(X1, Y1), Tone(Opacity), Rounding * Scale, 0, Width * Scale);
+	Draw.AddRect(At(X0, Y0), At(X1, Y1), Tone(Opacity), Rounding * Scale, Width * Scale);
 }
 
 std::vector<ImVec2> FIconPen::Arc(const float X, const float Y, const float Radius, const float From, const float To) const
@@ -1140,7 +1143,7 @@ void RoundPanelCorners(ImDrawList& DrawList, const ImVec2 Minimum, const ImVec2 
 	for (const FCorner& Corner : Corners)
 	{
 		DrawList.PathArcTo(Corner.Center, Radius + Width * 0.5f, Corner.FromAngle, Corner.FromAngle + 0.5f * Pi, Segments);
-		DrawList.PathStroke(Color, ImDrawFlags_None, Width);
+		DrawList.PathStroke(Color, Width);
 	}
 
 	DrawList.PopClipRect();
@@ -1213,7 +1216,7 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 					const float Left = Bar.BarRect.Min.x + Tab.Offset - Bar.ScrollingAnim;
 					const ImVec2 Center{Left + Bar.FramePadding.x + 6.f * Scale, (Bar.BarRect.Min.y + Bar.BarRect.Max.y) * 0.5f};
 					const bool bHovered = Owner.Context->HoveredWindow == Node->HostWindow && ImGui::IsMouseHoveringRect(Tab.Window->DC.DockTabItemRect.Min, Tab.Window->DC.DockTabItemRect.Max, false);
-					const ImU32 Color = ToImGuiPackedColor(Tab.ID == Bar.VisibleTabId || bHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted);
+					const ImU32 Color = ToImGuiPackedColor(Tab.ID == Bar.VisibleTabContentsId || bHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted);
 					DrawList->PushClipRect({Bar.ScrollingRectMinX, Bar.BarRect.Min.y}, {Bar.ScrollingRectMaxX, Bar.BarRect.Max.y}, false);
 					DrawToolUIIcon(DrawList, Center, Scale, Color, bOutliner ? EToolUIMenuIcon::Outliner : bDetails   ? EToolUIMenuIcon::Details
 					                                                                                   : bPerformance ? EToolUIMenuIcon::Performance
@@ -1244,7 +1247,7 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 					DrawList->PopClipRect();
 				}
 
-				if (Tab.ID != Bar.VisibleTabId)
+				if (Tab.ID != Bar.VisibleTabContentsId)
 				{
 					continue;
 				}
@@ -2698,7 +2701,7 @@ void FToolUIContext::BeginFrame()
 		if (Window->DockNode && Window->DockNode->TabBar)
 		{
 			const ImGuiTabBar& Bar = *Window->DockNode->TabBar;
-			const bool bSelected = (Bar.NextSelectedTabId != 0 ? Bar.NextSelectedTabId : Bar.VisibleTabId) == Window->TabId;
+			const bool bSelected = (Bar.NextSelectedTabId != 0 ? Bar.NextSelectedTabId : Bar.VisibleTabContentsId) == Window->TabId;
 			const bool bHovered = Implementation->Context->HoveredWindow == Window->DockNode->HostWindow && ImGui::IsMouseHoveringRect(Window->DC.DockTabItemRect.Min, Window->DC.DockTabItemRect.Max, false);
 			Window->DockStyle.Colors[ImGuiWindowDockStyleCol_Text] = ToImGuiPackedColor(bSelected || bHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted);
 		}

@@ -1071,7 +1071,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 				Fill.Alpha = 28;
 				PanelDrawList->PushClipRect(ImageMinimum, {ImageMinimum.x + Size.x, ImageMinimum.y + Size.y}, true);
 				PanelDrawList->AddRectFilled(Minimum, Maximum, PackColor(Fill));
-				PanelDrawList->AddRect(Minimum, Maximum, PackColor(Outline), 0.f, 0, HudScale);
+				PanelDrawList->AddRect(Minimum, Maximum, PackColor(Outline), 0.f, HudScale);
 				PanelDrawList->PopClipRect();
 			}
 

@@ -442,7 +442,7 @@ TEST_CASE("Content Browser stays first across saved ordering and close reopen wi
 			{
 				CHECK(Bar->SelectedTabId == BrowserTabId);
 				CHECK(Bottom->SelectedTabId == BrowserTabId);
-				CHECK(Bar->VisibleTabId == BrowserTabId);
+				CHECK(Bar->VisibleTabContentsId == BrowserTabId);
 			}
 		}
 
