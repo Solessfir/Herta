@@ -63,7 +63,6 @@ struct FRecastConfig
 	return Config;
 }
 
-
 struct FTileKey
 {
 	auto operator<=>(const FTileKey&) const = default;
@@ -241,6 +240,7 @@ std::expected<FNavigationData, FNavigationError> BuildNavigationData(const FNavi
 	const FRecastConfig Config = MakeConfig(Settings);
 	const float TileSize = Settings.GetTileSize();
 	const float Border = static_cast<float>(Config.BorderSize) * Settings.CellSize;
+
 	struct FTileInput
 	{
 		std::vector<int> Triangles{};
@@ -309,7 +309,8 @@ std::expected<FNavigationData, FNavigationError> BuildNavigationData(const FNavi
 	const auto Parallel = Scope ? Tasks->ParallelFor(*Scope, {.Name = "Navigation tiles", .Lane = ETaskLane::Cpu}, Work.size(), 1, [&Build](const std::size_t Index, FTaskContext&)
 	{
 		Build(Index);
-	}) : std::unexpected(FTaskError{});
+	})
+	                            : std::unexpected(FTaskError{});
 
 	// Tiles a failed or missing task system left unbuilt are built here instead.
 	if (Parallel && Parallel->Wait().State != ETaskState::Succeeded)

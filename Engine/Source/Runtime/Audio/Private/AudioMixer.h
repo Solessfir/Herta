@@ -16,9 +16,9 @@
 namespace Herta
 {
 #ifdef _MSC_VER
-// The padding the alignment adds is the point.
-#pragma warning(push)
-#pragma warning(disable : 4324)
+    // The padding the alignment adds is the point.
+	#pragma warning(push)
+	#pragma warning(disable : 4324)
 #endif
 
 // One producer and one consumer, never blocking either. The mixer is the consumer of commands and the producer of events.
@@ -39,7 +39,7 @@ private:
 };
 
 #ifdef _MSC_VER
-#pragma warning(pop)
+	#pragma warning(pop)
 #endif
 
 template <typename T, std::size_t Capacity>

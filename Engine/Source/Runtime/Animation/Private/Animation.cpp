@@ -18,9 +18,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <numbers>
 #include <cstring>
 #include <format>
+#include <numbers>
 #include <type_traits>
 #include <vector>
 
@@ -285,14 +285,14 @@ FVector3 FAnimationLibrary::GetRootMotion(const std::size_t Clip, const float Fr
 }
 
 #if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wignored-attributes"
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wignored-attributes"
 #endif
 // ozz's SIMD vector type carries an alignment attribute that GCC drops from template arguments; vector storage is 16-byte aligned on every
 // supported platform, which is all it needs.
 using FJointWeights = std::vector<ozz::math::SimdFloat4>;
 #if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
+	#pragma GCC diagnostic pop
 #endif
 
 struct FAnimationPose::FImplementation
@@ -416,7 +416,8 @@ std::expected<void, FAnimationError> FAnimationPose::Evaluate(const std::span<co
 				{
 					const std::size_t Joint = Soa * 4 + Lane;
 					const float Body = Joint < Joints && Library.UpperBody[Joint] ? Layer.UpperBodyWeight : Layer.LowerBodyWeight;
-					Lanes[Lane] = Body * (!bMasked ? 1.f : Joint < Joints && InMask(Joint, *Layer.MaskJoint) ? Layer.InsideMask : Layer.OutsideMask);
+					Lanes[Lane] = Body * (!bMasked ? 1.f : Joint < Joints && InMask(Joint, *Layer.MaskJoint) ? Layer.InsideMask
+					                                                                                         : Layer.OutsideMask);
 				}
 
 				Weights[Soa] = ozz::math::simd_float4::Load(Lanes[0], Lanes[1], Lanes[2], Lanes[3]);

@@ -563,7 +563,8 @@ FAnimationStateMachineDesc FAnimationGraphCompiler::BuildMachine(const std::stri
 			}
 			else
 			{
-				Condition.Test = bNot ? EAnimationCondition::IsFalse : Type == EAnimationParameterType::Trigger ? EAnimationCondition::Triggered : EAnimationCondition::IsTrue;
+				Condition.Test = bNot ? EAnimationCondition::IsFalse : Type == EAnimationParameterType::Trigger ? EAnimationCondition::Triggered
+				                                                                                                : EAnimationCondition::IsTrue;
 			}
 
 			Transition.Conditions.push_back(Condition);
@@ -616,7 +617,9 @@ std::expected<FAnimationGraphCompilation, std::vector<FGraphDiagnostic>> FAnimat
 
 		const std::string& Name = Text(*Node, "name");
 		const std::string& Type = Text(*Node, "type");
-		const auto Kind = Type == "Float" ? std::optional(EAnimationParameterType::Float) : Type == "Bool" ? std::optional(EAnimationParameterType::Bool) : Type == "Trigger" ? std::optional(EAnimationParameterType::Trigger) : std::nullopt;
+		const auto Kind = Type == "Float" ? std::optional(EAnimationParameterType::Float) : Type == "Bool"  ? std::optional(EAnimationParameterType::Bool)
+		                                                                                : Type == "Trigger" ? std::optional(EAnimationParameterType::Trigger)
+		                                                                                                    : std::nullopt;
 		if (Name.empty() || std::ranges::contains(Outer.Parameters, Name, &FAnimationParameterDesc::Name))
 		{
 			Fail(Node->Id, std::format("Parameter names must be unique and not empty ('{}')", Name));
@@ -636,7 +639,9 @@ std::expected<FAnimationGraphCompilation, std::vector<FGraphDiagnostic>> FAnimat
 		FMachineNodes* Machine = Node->Type == "State" || Node->Type == "Transition" || Node->Type == "Entry" ? &Machines[Text(*Node, "machine")] : nullptr;
 		if (Machine)
 		{
-			(Node->Type == "State" ? Machine->States : Node->Type == "Transition" ? Machine->Transitions : Machine->Entries).push_back(Node);
+			(Node->Type == "State" ? Machine->States : Node->Type == "Transition" ? Machine->Transitions
+			                                                                      : Machine->Entries)
+			    .push_back(Node);
 		}
 	}
 
@@ -784,7 +789,9 @@ FGraphNodeId FAnimationGraphWriter::WriteTree(const FAnimationStateDesc& State, 
 	for (std::size_t Child = 0; Child < Desc.Children.size(); ++Child)
 	{
 		const FGraphNodeId From = WriteTree(State, Desc.Children[Child].Node, Parameters, {Position[0] - 420.f, Row}, Row);
-		const std::string_view Pin = bPair ? (Child == 0 ? std::string_view("Base") : Desc.Type == EAnimationBlendNodeType::Layered ? std::string_view("Layer") : std::string_view("Additive")) : BlendInputs[Child].Key;
+		const std::string_view Pin = bPair ? (Child == 0 ? std::string_view("Base") : Desc.Type == EAnimationBlendNodeType::Layered ? std::string_view("Layer")
+		                                                                                                                            : std::string_view("Additive"))
+		                                   : BlendInputs[Child].Key;
 		Graph.Links.push_back({.From = {.Node = From, .Key = "Pose"}, .To = {.Node = Id, .Key = std::string(Pin)}});
 	}
 
@@ -908,8 +915,8 @@ float FAnimationGraphWriter::WriteMachine(const FAnimationStateMachineDesc& Mach
 		for (const FAnimationConditionDesc& Condition : Transition.Conditions)
 		{
 			const std::string& ParameterName = Parameters[Condition.Parameter].Name;
-			const std::string Written = Condition.Test == EAnimationCondition::Greater ? ParameterName + " > " + FormatNumber(Condition.Value)
-			                            : Condition.Test == EAnimationCondition::Less  ? ParameterName + " < " + FormatNumber(Condition.Value)
+			const std::string Written = Condition.Test == EAnimationCondition::Greater   ? ParameterName + " > " + FormatNumber(Condition.Value)
+			                            : Condition.Test == EAnimationCondition::Less    ? ParameterName + " < " + FormatNumber(Condition.Value)
 			                            : Condition.Test == EAnimationCondition::IsFalse ? "!" + ParameterName
 			                                                                             : ParameterName;
 			Conditions += (Conditions.empty() ? "" : ", ") + Written;

@@ -1,5 +1,4 @@
 #include "GraphDocumentPanel.h"
-
 #include "Herta/AudioGraph/AudioGraph.h"
 
 namespace Herta

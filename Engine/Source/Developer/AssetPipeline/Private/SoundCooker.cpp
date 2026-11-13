@@ -1,8 +1,8 @@
 #include "SoundCooker.h"
 
 #include "FileUtilities.h"
-#include "Herta/AudioGraph/AudioGraph.h"
 #include "Herta/Audio/SoundDecoder.h"
+#include "Herta/AudioGraph/AudioGraph.h"
 #include "Herta/Core/Hash.h"
 
 #include <charconv>
@@ -27,7 +27,8 @@ namespace
 
 [[nodiscard]] std::optional<bool> ParseBool(const std::string_view Text)
 {
-	return Text == "true" ? std::optional(true) : Text == "false" ? std::optional(false) : std::nullopt;
+	return Text == "true" ? std::optional(true) : Text == "false" ? std::optional(false)
+	                                                              : std::nullopt;
 }
 }
 
@@ -89,7 +90,8 @@ std::expected<FSoundSettings, FAssetError> ParseSoundSettings(const FAssetImport
 				return Invalid("a number");
 			}
 
-			(Key == "Volume" ? Playback.Volume : Key == "MinimumDistance" ? Playback.MinimumDistance : Playback.MaximumDistance) = *Number;
+			(Key == "Volume" ? Playback.Volume : Key == "MinimumDistance" ? Playback.MinimumDistance
+			                                                              : Playback.MaximumDistance) = *Number;
 		}
 		else if (bWave && (Key == "Loop" || Key == "Stream"))
 		{

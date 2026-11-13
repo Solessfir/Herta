@@ -2,9 +2,9 @@
 
 #include "Herta/AudioGraph/AudioGraph.h"
 #include "Herta/EditorCore/TransactionHistory.h"
-#include "Herta/VfxGraph/VfxGraph.h"
 #include "Herta/GraphCore/Graph.h"
 #include "Herta/GraphEditor/GraphCanvas.h"
+#include "Herta/VfxGraph/VfxGraph.h"
 
 #include <cstdint>
 #include <filesystem>

@@ -1,16 +1,14 @@
-#include "TestFiles.h"
-
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/VfxGraph/VfxGraph.h"
+#include "TestFiles.h"
 
 #include <doctest/doctest.h>
 
 #include <format>
 #include <fstream>
 #include <iterator>
-#include <string>
-
 #include <numbers>
+#include <string>
 
 using namespace Herta;
 

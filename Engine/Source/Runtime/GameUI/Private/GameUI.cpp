@@ -137,6 +137,7 @@ struct FGameUI::FImplementation
 	std::unordered_map<std::uint64_t, FGlyph> Glyphs;
 	// Rasterized since the last publication.
 	std::vector<std::uint64_t> PendingGlyphs;
+
 	struct FShapeEntry
 	{
 		FShapedText Shaped;

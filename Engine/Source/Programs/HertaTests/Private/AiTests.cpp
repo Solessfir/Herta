@@ -561,10 +561,22 @@ constexpr EAiRelation H = EAiRelation::Hostile;
 constexpr EAiRelation N = EAiRelation::Neutral;
 constexpr EAiRelation F = EAiRelation::Friendly;
 constexpr std::array FactionTable{
-    F, H, N, F,
-    H, F, N, H,
-    N, N, F, N,
-    F, H, N, F,
+    F,
+    H,
+    N,
+    F,
+    H,
+    F,
+    N,
+    H,
+    N,
+    N,
+    F,
+    N,
+    F,
+    H,
+    N,
+    F,
 };
 
 [[nodiscard]] std::shared_ptr<const FCookedStateTree> MakeIdleTree()

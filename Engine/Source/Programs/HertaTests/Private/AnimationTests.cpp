@@ -19,11 +19,11 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
-#include <tuple>
-#include <numbers>
-#include <map>
 #include <fstream>
+#include <map>
+#include <numbers>
 #include <string_view>
+#include <tuple>
 
 namespace Herta
 {
@@ -1371,7 +1371,8 @@ TEST_CASE("AI agents walk the navigation, chase and knock down the player, flee 
 		const bool bGuard = SwingFrame >= 0 && Frame - SwingFrame >= *Lead - 5;
 		Step(1, {.bBlock = bGuard});
 		// A swing that misses ends without an event, so each new swing restarts the count.
-		SwingFrame = !bWasAttacking && Guard().bAttacking ? Frame : Guard().bAttacking ? SwingFrame : -1;
+		SwingFrame = !bWasAttacking && Guard().bAttacking ? Frame : Guard().bAttacking ? SwingFrame
+		                                                                               : -1;
 		bDeflected = Contains((*Session)->TakeEvents(), "The player deflected");
 	}
 

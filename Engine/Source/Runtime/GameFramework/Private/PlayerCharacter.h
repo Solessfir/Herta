@@ -162,6 +162,7 @@ private:
 	std::vector<FCookedVertex> Vertices;
 	std::shared_ptr<const FRenderMesh> CameraMesh;
 	std::vector<FCookedVertex> CameraVertices;
+
 	struct FFootPlacement
 	{
 		std::optional<std::size_t> Hip{};

@@ -23,8 +23,7 @@ class FCharacterPiece
 public:
 	// Mesh is in the character's bind space and PoseTransforms the skeleton's model-space pose when it was cut; ModelToWorld places that model
 	// space in the physics world, which here is also the world.
-	[[nodiscard]] static std::expected<std::unique_ptr<FCharacterPiece>, FGameError> Create(FPhysicsWorld& World, IGraphicsDevice* Device, std::shared_ptr<const FCookedModel> Model, std::shared_ptr<const FAnimationLibrary> Library,
-	    std::span<const FMatrix4> PoseTransforms, FSkinnedMeshPiece Mesh, const FMatrix4& ModelToWorld, const FVector3& Velocity, std::size_t Owner);
+	[[nodiscard]] static std::expected<std::unique_ptr<FCharacterPiece>, FGameError> Create(FPhysicsWorld& World, IGraphicsDevice* Device, std::shared_ptr<const FCookedModel> Model, std::shared_ptr<const FAnimationLibrary> Library, std::span<const FMatrix4> PoseTransforms, FSkinnedMeshPiece Mesh, const FMatrix4& ModelToWorld, const FVector3& Velocity, std::size_t Owner);
 
 	FCharacterPiece(const FCharacterPiece&) = delete;
 	FCharacterPiece& operator=(const FCharacterPiece&) = delete;

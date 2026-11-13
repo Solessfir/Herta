@@ -43,9 +43,16 @@ public:
 	}
 
 	[[nodiscard]] constexpr auto operator<=>(const FAssetId&) const noexcept = default;
+	// Written out because a defaulted one makes clang-cl send std::find and std::erase down MSVC STL's vectorized paths, which reject 16-byte elements.
+	[[nodiscard]] constexpr bool operator==(const FAssetId& Other) const noexcept;
 
 private:
 	std::uint64_t High = 0;
 	std::uint64_t Low = 0;
 };
+
+constexpr bool FAssetId::operator==(const FAssetId& Other) const noexcept
+{
+	return High == Other.High && Low == Other.Low;
+}
 }

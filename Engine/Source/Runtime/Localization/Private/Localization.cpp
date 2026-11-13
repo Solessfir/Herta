@@ -229,8 +229,26 @@ std::string Pseudolocalize(const std::string_view Text)
 {
 	constexpr std::string_view Plain = "aeiouAEIOUcnszyCNSZY";
 	constexpr std::array<std::string_view, 20> Accented{
-	    "á", "é", "í", "ó", "ú", "Á", "É", "Í", "Ó", "Ú",
-	    "ç", "ñ", "š", "ž", "ý", "Ç", "Ñ", "Š", "Ž", "Ý",
+	    "á",
+	    "é",
+	    "í",
+	    "ó",
+	    "ú",
+	    "Á",
+	    "É",
+	    "Í",
+	    "Ó",
+	    "Ú",
+	    "ç",
+	    "ñ",
+	    "š",
+	    "ž",
+	    "ý",
+	    "Ç",
+	    "Ñ",
+	    "Š",
+	    "Ž",
+	    "Ý",
 	};
 
 	std::string Output;

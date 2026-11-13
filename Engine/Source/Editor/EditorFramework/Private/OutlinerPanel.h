@@ -109,8 +109,8 @@ struct FOutlinerPanelState
 // The hidden and locked entities of every level, as text kept per user: a "level <path>" line, then "hidden <id>" and "locked <id>" lines.
 struct FOutlinerFlags
 {
-	std::set<FObjectId> Hidden;
-	std::set<FObjectId> Locked;
+	std::set<FObjectId> Hidden{};
+	std::set<FObjectId> Locked{};
 
 	[[nodiscard]] bool operator==(const FOutlinerFlags&) const = default;
 };

@@ -1011,7 +1011,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 						const auto Label = Asset->Label.substr(Separator == std::string::npos ? 0 : Separator + 1);
 						const auto Dot = Label.rfind('.');
 						// Sounds become emitters a little above where they land, so they are not buried in the floor.
-						const auto Created = IsSoundContentAsset(*Asset)  ? Level->CreateSoundEntity(Asset->Id, Label.substr(0, Dot), {Position.X, Position.Y + 1., Position.Z})
+						const auto Created = IsSoundContentAsset(*Asset)    ? Level->CreateSoundEntity(Asset->Id, Label.substr(0, Dot), {Position.X, Position.Y + 1., Position.Z})
 						                     : IsEffectContentAsset(*Asset) ? Level->CreateEffectEntity(Asset->Id, Label.substr(0, Dot), {Position.X, Position.Y, Position.Z})
 						                                                    : Level->CreateMeshEntity(Asset->Id, Label.substr(0, Dot), {Position.X, Position.Y, Position.Z});
 						if (!Created)

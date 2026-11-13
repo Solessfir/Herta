@@ -1,5 +1,5 @@
-#include "Herta/NavigationBuilder/NavigationBuilder.h"
 #include "Herta/Navigation/NavigationWorld.h"
+#include "Herta/NavigationBuilder/NavigationBuilder.h"
 #include "Herta/Tasks/TaskSystem.h"
 
 #include <doctest/doctest.h>
@@ -313,6 +313,7 @@ TEST_CASE("Navigation crowds steer agents past each other and rejoin streamed na
 	CHECK(Streamed->GetAgent(*Waiting)->bOnNavigation);
 	CHECK(Streamed->GetAgent(*Waiting)->bArrived);
 }
+
 TEST_CASE("Levels build navigation from static bodies, with region tiles streaming as patches")
 {
 	constexpr FAssetId Cube{0x1111, 0x2222};

@@ -227,7 +227,10 @@ private:
 			return ParseCases(std::move(Node), Depth);
 		}
 
-		Node.Kind = Type == "number" ? ENodeKind::Number : Type == "date" ? ENodeKind::Date : Type == "time" ? ENodeKind::Time : Type == "datetime" ? ENodeKind::DateTime : ENodeKind::Text;
+		Node.Kind = Type == "number" ? ENodeKind::Number : Type == "date"   ? ENodeKind::Date
+		                                               : Type == "time"     ? ENodeKind::Time
+		                                               : Type == "datetime" ? ENodeKind::DateTime
+		                                                                    : ENodeKind::Text;
 		if (Node.Kind == ENodeKind::Text)
 		{
 			return Error(std::format("has an unknown argument type '{}'", Type));
@@ -423,7 +426,9 @@ void FormatNodes(const std::span<const FNode> Nodes, const FCulture& Culture, co
 			{
 				const auto* const Time = Value ? std::get_if<FCivilTime>(Value) : nullptr;
 				const auto Style = Node.Style.empty() ? EDateTimeStyle::Medium : static_cast<EDateTimeStyle>(std::ranges::find(DateStyles, Node.Style) - DateStyles.begin());
-				Output += !Time ? Missing : Node.Kind == ENodeKind::Date ? Culture.FormatDate(*Time, Style) : Node.Kind == ENodeKind::Time ? Culture.FormatTime(*Time, Style) : Culture.FormatDateTime(*Time, Style);
+				Output += !Time ? Missing : Node.Kind == ENodeKind::Date ? Culture.FormatDate(*Time, Style)
+				                        : Node.Kind == ENodeKind::Time   ? Culture.FormatTime(*Time, Style)
+				                                                         : Culture.FormatDateTime(*Time, Style);
 				break;
 			}
 			case ENodeKind::Plural:

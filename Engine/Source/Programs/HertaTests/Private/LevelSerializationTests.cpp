@@ -1233,6 +1233,7 @@ TEST_CASE("Level regions persist from schema fifteen and reject unsafe paths and
 	Twice.Regions[1].Id = Twice.Regions[0].Id;
 	CHECK_FALSE(ValidateLevelDocument(Twice));
 }
+
 TEST_CASE("Navigation and AI components persist in schema sixteen and validate their ranges")
 {
 	FLevelDocument Document = MakeLevelDocument();

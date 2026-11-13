@@ -1,5 +1,4 @@
 #include "GraphDocumentPanel.h"
-
 #include "Herta/MaterialGraph/MaterialGraph.h"
 
 #include <imgui.h>

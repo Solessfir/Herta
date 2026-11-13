@@ -141,6 +141,7 @@ struct FLevelDocument
 [[nodiscard]] bool IsLevelRegionScenery(const FLevelEntity& Entity) noexcept;
 // A region's entities placed at its offset, composed in double precision before rounding, in entity order.
 [[nodiscard]] std::expected<std::vector<FMatrix4>, FLevelError> ComposeLevelRegionMatrices(const FLevelRegion& Region, std::span<const FLevelEntity> Entities);
+
 // Placing a region more than once repeats its entities, so each placement mixes its own identity into theirs.
 [[nodiscard]] constexpr FObjectId GetLevelRegionInstanceId(const FLevelRegion& Region, const FObjectId& Entity) noexcept
 {

@@ -1,5 +1,4 @@
 #include "EditorFrameworkPrivate.h"
-
 #include "Herta/ToolUI/EditorText.h"
 
 namespace Herta

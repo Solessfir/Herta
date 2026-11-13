@@ -1,6 +1,5 @@
-#include "Herta/NavigationBuilder/NavigationBuilder.h"
-
 #include "Herta/Math/AffineTransform.h"
+#include "Herta/NavigationBuilder/NavigationBuilder.h"
 
 #include <algorithm>
 #include <array>

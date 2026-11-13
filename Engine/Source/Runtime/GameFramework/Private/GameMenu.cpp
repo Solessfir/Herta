@@ -447,7 +447,8 @@ std::vector<EGameMenuCommand> FGameMenu::Draw(FGameUI& UI, const FGameMenuInput&
 
 	// Oversized so the dimming covers the screen at any aspect ratio.
 	UI.DrawRect({.Anchor = {0.5f, 0.5f}, .Pivot = {0.5f, 0.5f}}, {100000.f, 100000.f}, MakeGameUIColor(0, 0, 0, 140));
-	const std::string Title = TextSource->Format(Screen == EGameMenuScreen::Pause ? Game::Menu_Title_Paused : Screen == EGameMenuScreen::Settings ? Game::Menu_Title_Settings : Game::Menu_Title_Controls);
+	const std::string Title = TextSource->Format(Screen == EGameMenuScreen::Pause ? Game::Menu_Title_Paused : Screen == EGameMenuScreen::Settings ? Game::Menu_Title_Settings
+	                                                                                                                                              : Game::Menu_Title_Controls);
 	const std::vector<std::string> Labels = GetItems(Settings);
 	const float Height = static_cast<float>(Labels.size()) * 62.f;
 	UI.DrawText(Title, {.Anchor = {0.5f, 0.5f}, .Pivot = {0.5f, 1.f}, .Offset = {0.f, -Height * 0.5f - 60.f}}, EGameUIFont::Title, Text);
@@ -464,7 +465,8 @@ std::vector<EGameMenuCommand> FGameMenu::Draw(FGameUI& UI, const FGameMenuInput&
 		}
 	}
 
-	const std::string Hint = TextSource->Format(Capture ? Game::Hint_Capture : Screen == EGameMenuScreen::Pause ? Game::Hint_Pause : Game::Hint_Settings);
+	const std::string Hint = TextSource->Format(Capture ? Game::Hint_Capture : Screen == EGameMenuScreen::Pause ? Game::Hint_Pause
+	                                                                                                            : Game::Hint_Settings);
 	const FVector2 Size = UI.MeasureText(Hint, EGameUIFont::Body);
 	UI.DrawRect({.Anchor = {0.5f, 1.f}, .Pivot = {0.5f, 1.f}, .Offset = {0.f, -24.f}}, {Size.X + 40.f, Size.Y + 28.f}, Panel, 12.f);
 	UI.DrawText(Hint, {.Anchor = {0.5f, 1.f}, .Pivot = {0.5f, 1.f}, .Offset = {0.f, -38.f}}, EGameUIFont::Body, MakeGameUIColor(220, 224, 232));

@@ -107,7 +107,7 @@ template <typename T>
 	{
 		const char Character = Digits[Index / 4];
 		const int Digit = Character >= '0' && Character <= '9' ? Character - '0' : Character >= 'a' && Character <= 'f' ? Character - 'a' + 10
-		                                                                                                                 : -1;
+		                                                                                                                : -1;
 		if (Digit < 0)
 		{
 			return std::nullopt;

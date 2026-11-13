@@ -171,7 +171,9 @@ std::optional<FEmbeddedData> FindEmbeddedData(const std::string_view Name)
 	const std::filesystem::path Executable = "/proc/self/exe";
 	std::ifstream File(Executable, std::ios::binary);
 	Elf64_Ehdr Header{};
-	if (!File.read(reinterpret_cast<char*>(&Header), sizeof(Header)) || std::string_view(reinterpret_cast<const char*>(Header.e_ident), 4) != "\x7f" "ELF" || Header.e_ident[EI_CLASS] != ELFCLASS64 || Header.e_shentsize != sizeof(Elf64_Shdr) || Header.e_shstrndx >= Header.e_shnum)
+	if (!File.read(reinterpret_cast<char*>(&Header), sizeof(Header)) || std::string_view(reinterpret_cast<const char*>(Header.e_ident), 4) != "\x7f"
+	                                                                                                                                          "ELF"
+	    || Header.e_ident[EI_CLASS] != ELFCLASS64 || Header.e_shentsize != sizeof(Elf64_Shdr) || Header.e_shstrndx >= Header.e_shnum)
 	{
 		return std::nullopt;
 	}
@@ -335,7 +337,11 @@ void InstallCrashReporter(const std::string_view BuildId, const std::filesystem:
 	}
 
 	std::memcpy(CrashReporter.Directory.data(), Path.c_str(), Path.size() + 1);
-	struct sigaction Action{};
+
+	struct sigaction Action
+	{
+	};
+
 	Action.sa_handler = &WriteCrashReport;
 	Action.sa_flags = SA_RESETHAND;
 	sigemptyset(&Action.sa_mask);

@@ -4,10 +4,10 @@
 #include "Herta/Math/WorldPosition.h"
 
 #include <array>
-#include <functional>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>

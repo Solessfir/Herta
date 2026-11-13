@@ -557,7 +557,6 @@ public:
 	// A polygon filled and outlined with a thin round stroke, which rounds its corners.
 	void RoundedPolygon(std::initializer_list<ImVec2> Points, float Rounding, float Opacity = 1.f) const;
 	void Ring(float X, float Y, float Radius, float Width, float Opacity = 1.f) const;
-	void Frame(float X0, float Y0, float X1, float Y1, float Rounding, float Width, float Opacity = 1.f) const;
 	[[nodiscard]] std::vector<ImVec2> Arc(float X, float Y, float Radius, float From, float To) const;
 
 private:
@@ -664,11 +663,6 @@ void FIconPen::RoundedPolygon(const std::initializer_list<ImVec2> Points, const 
 void FIconPen::Ring(const float X, const float Y, const float Radius, const float Width, const float Opacity) const
 {
 	Draw.AddCircle(At(X, Y), Radius * Scale, Tone(Opacity), 0, Width * Scale);
-}
-
-void FIconPen::Frame(const float X0, const float Y0, const float X1, const float Y1, const float Rounding, const float Width, const float Opacity) const
-{
-	Draw.AddRect(At(X0, Y0), At(X1, Y1), Tone(Opacity), Rounding * Scale, Width * Scale);
 }
 
 std::vector<ImVec2> FIconPen::Arc(const float X, const float Y, const float Radius, const float From, const float To) const

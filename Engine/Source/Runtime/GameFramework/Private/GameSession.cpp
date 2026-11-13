@@ -1,18 +1,18 @@
 #include "Herta/GameFramework/GameSession.h"
 
-#include "Herta/Core/Hash.h"
-#include "Herta/GameFramework/GameAssets.h"
-#include "Herta/GameFramework/LevelSimulationSetup.h"
-#include "Herta/GameFramework/SoftBodyGeometry.h"
-#include "Herta/Animation/MeshSlice.h"
-#include "Herta/GameFramework/Combat.h"
-#include "Herta/Math/AffineTransform.h"
 #include "CharacterPiece.h"
 #include "GameAudio.h"
 #include "GameGraphs.h"
 #include "GameNavigation.h"
 #include "GameNpc.h"
 #include "Herta/AI/AiWorld.h"
+#include "Herta/Animation/MeshSlice.h"
+#include "Herta/Core/Hash.h"
+#include "Herta/GameFramework/Combat.h"
+#include "Herta/GameFramework/GameAssets.h"
+#include "Herta/GameFramework/LevelSimulationSetup.h"
+#include "Herta/GameFramework/SoftBodyGeometry.h"
+#include "Herta/Math/AffineTransform.h"
 #include "PlayerCharacter.h"
 #include "WorldStreamer.h"
 
@@ -34,10 +34,22 @@ namespace
 // agents, which fight them back, and neutral agents keep to themselves.
 constexpr std::uint8_t PlayerFaction = 0;
 constexpr std::array AiFactionRelations{
-    EAiRelation::Friendly, EAiRelation::Hostile, EAiRelation::Neutral, EAiRelation::Friendly,
-    EAiRelation::Hostile, EAiRelation::Friendly, EAiRelation::Neutral, EAiRelation::Hostile,
-    EAiRelation::Neutral, EAiRelation::Neutral, EAiRelation::Friendly, EAiRelation::Neutral,
-    EAiRelation::Friendly, EAiRelation::Hostile, EAiRelation::Neutral, EAiRelation::Friendly,
+    EAiRelation::Friendly,
+    EAiRelation::Hostile,
+    EAiRelation::Neutral,
+    EAiRelation::Friendly,
+    EAiRelation::Hostile,
+    EAiRelation::Friendly,
+    EAiRelation::Neutral,
+    EAiRelation::Hostile,
+    EAiRelation::Neutral,
+    EAiRelation::Neutral,
+    EAiRelation::Friendly,
+    EAiRelation::Neutral,
+    EAiRelation::Friendly,
+    EAiRelation::Hostile,
+    EAiRelation::Neutral,
+    EAiRelation::Friendly,
 };
 constexpr std::size_t AiFactionCount = 4;
 static_assert(AiFactionRelations.size() == AiFactionCount * AiFactionCount);
@@ -1022,7 +1034,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 	if (auto Placed = ForEachPlayerUntilError<FGameError>([this]
 	{
 		return StartPlayer();
-	}); !Placed)
+	});
+	    !Placed)
 	{
 		Simulation.Stop();
 		return Placed;
@@ -1383,7 +1396,8 @@ std::expected<void, FGameError> FGameSession::RestoreSnapshot(const FGameSession
 		Session.Combat = Saved.Combat;
 		Session.bGuardWasHeld = Saved.bGuardWasHeld;
 		return {};
-	}); !Placed)
+	});
+	    !Placed)
 	{
 		return Placed;
 	}
@@ -1996,7 +2010,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::UpdateScaled(cons
 	if (auto Begun = Session.ForEachPlayerUntilError<FGameError>([&Session, Inputs, DeltaSeconds]
 	{
 		return Session.BeginPlayerUpdate(Inputs[Session.ActivePlayer], DeltaSeconds);
-	}); !Begun)
+	});
+	    !Begun)
 	{
 		return Begun;
 	}
@@ -2011,7 +2026,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::UpdateScaled(cons
 		if (auto Stepped = Session.ForEachPlayerUntilError<FPhysicsError>([&Session, &World, StepSeconds]
 		{
 			return Session.bSimulated ? Session.StepPlayer(World, StepSeconds) : std::expected<void, FPhysicsError>{};
-		}); !Stepped)
+		});
+		    !Stepped)
 		{
 			return Stepped;
 		}
@@ -2167,7 +2183,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishUpdate(cons
 	if (auto Finished = ForEachPlayerUntilError<FGameError>([this, DeltaSeconds]
 	{
 		return FinishPlayerUpdate(DeltaSeconds);
-	}); !Finished)
+	});
+	    !Finished)
 	{
 		return Finished;
 	}
@@ -2939,8 +2956,8 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters
 			// Touching the capsule: within its radius plus the ball's, between the feet and the top of the head. A downed body lies within about
 			// its height of its pelvis.
 			const bool bTouching = Actor.RagdollParts.empty()
-			    ? std::hypot(Offset.X, Offset.Z) <= 0.3f + ProjectileRadius + 0.05f && Offset.Y >= 0.f && Offset.Y <= 1.9f
-			    : (Transform->Position - Actor.RagdollParts.front().Position).Length() <= 0.9f + ProjectileRadius;
+			                           ? std::hypot(Offset.X, Offset.Z) <= 0.3f + ProjectileRadius + 0.05f && Offset.Y >= 0.f && Offset.Y <= 1.9f
+			                           : (Transform->Position - Actor.RagdollParts.front().Position).Length() <= 0.9f + ProjectileRadius;
 			if (!bTouching)
 			{
 				continue;
@@ -3866,9 +3883,9 @@ void FGameSession::FImplementation::UpdateEffects(const float DeltaSeconds)
 {
 	// Emitters whose systems arrived after the session started begin now.
 	if (EmitterEffects.size() != static_cast<std::size_t>(std::ranges::count_if(Entities, [this](const FLevelEntity& Entity)
-	    {
-		    return Entity.ParticleEmitter && Entity.ParticleEmitter->bAutoPlay && Particles.HasSystem(Entity.ParticleEmitter->System);
-	    })))
+	{
+		return Entity.ParticleEmitter && Entity.ParticleEmitter->bAutoPlay && Particles.HasSystem(Entity.ParticleEmitter->System);
+	})))
 	{
 		for (std::size_t Index = 0; Index < Entities.size(); ++Index)
 		{

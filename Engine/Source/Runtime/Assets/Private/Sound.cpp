@@ -163,9 +163,9 @@ std::expected<void, FAssetError> ValidateSoundGraph(const FSoundGraphDesc& Graph
 		};
 
 		if (Node.Inputs.size() > MaximumNodeInputs || std::ranges::any_of(Node.Inputs, [Index](const std::uint32_t Input)
-		    {
-			    return Input >= Index;
-		    }))
+		{
+			return Input >= Index;
+		}))
 		{
 			return Error("audio inputs must name earlier nodes");
 		}
@@ -215,9 +215,9 @@ std::expected<void, FAssetError> ValidateSoundGraph(const FSoundGraphDesc& Graph
 		if (Node.Type == ESoundNodeType::MapRange)
 		{
 			if (Node.Slot != Produced || Node.Control.Slot == NoSoundControl || !std::ranges::all_of(Node.Range, [](const float Value)
-			    {
-				    return std::isfinite(Value);
-			    }) || Node.Range[0] == Node.Range[1])
+			{
+				return std::isfinite(Value);
+			}) || Node.Range[0] == Node.Range[1])
 			{
 				return Error("a Map Range reads a slot, has a finite non-empty input range, and writes the next slot");
 			}
@@ -247,9 +247,9 @@ std::vector<FAssetId> GetSoundGraphWaves(const FSoundGraphDesc& Graph)
 		{
 			// A plain comparison; MSVC's vectorized find rejects 16-byte elements under Clang.
 			if (std::ranges::none_of(Waves, [&Wave](const FAssetId& Known)
-			    {
-				    return Known == Wave;
-			    }))
+			{
+				return Known == Wave;
+			}))
 			{
 				Waves.push_back(Wave);
 			}

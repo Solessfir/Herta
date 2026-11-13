@@ -1,5 +1,4 @@
 #include "EditorFrameworkPrivate.h"
-
 #include "Herta/Assets/VirtualFileSystem.h"
 
 namespace Herta
@@ -63,9 +62,9 @@ void FEditorFramework::FImplementation::UpdateAudio(const float DeltaSeconds)
 			for (const FAssetId& Wave : GetSoundGraphWaves(Slot->SoundGraph->Graph))
 			{
 				if (std::ranges::none_of(Wanted, [&Wave](const FAssetId& Known)
-				    {
-					    return Known == Wave;
-				    }))
+				{
+					return Known == Wave;
+				}))
 				{
 					Wanted.push_back(Wave);
 				}
@@ -349,7 +348,7 @@ void FEditorFramework::FImplementation::DrawAudioAudition()
 
 	ImGui::SameLine();
 	ImGui::TextDisabled("%s", bLoading ? "Loading waves..." : Audio->IsVoicePlaying(AuditionVoice) ? "Playing"
-	                                                                                                  : "Stopped");
+	                                                                                               : "Stopped");
 	if (!AuditionError.empty())
 	{
 		ImGui::PushTextWrapPos();

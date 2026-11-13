@@ -1,5 +1,4 @@
 #include "GraphDocumentPanel.h"
-
 #include "Herta/AnimationGraph/AnimationGraph.h"
 
 #include <imgui.h>

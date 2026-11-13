@@ -23,8 +23,7 @@ void ApplyPose(FAnimationPose& Pose, const std::span<const FMatrix4> Transforms)
 }
 }
 
-std::expected<std::unique_ptr<FCharacterPiece>, FGameError> FCharacterPiece::Create(FPhysicsWorld& World, IGraphicsDevice* const Device, std::shared_ptr<const FCookedModel> Model, std::shared_ptr<const FAnimationLibrary> Library,
-    const std::span<const FMatrix4> PoseTransforms, FSkinnedMeshPiece Mesh, const FMatrix4& ModelToWorld, const FVector3& Velocity, const std::size_t Owner)
+std::expected<std::unique_ptr<FCharacterPiece>, FGameError> FCharacterPiece::Create(FPhysicsWorld& World, IGraphicsDevice* const Device, std::shared_ptr<const FCookedModel> Model, std::shared_ptr<const FAnimationLibrary> Library, const std::span<const FMatrix4> PoseTransforms, FSkinnedMeshPiece Mesh, const FMatrix4& ModelToWorld, const FVector3& Velocity, const std::size_t Owner)
 {
 	std::unique_ptr<FCharacterPiece> Piece(new FCharacterPiece);
 	Piece->Model = std::move(Model);

@@ -56,7 +56,8 @@ void FEditorFramework::FImplementation::DrawVfxGraphPanel()
 		}
 
 		const FParticleStats Stats = PreviewParticles.GetStats();
-		ImGui::TextDisabled("%s", !PreviewDesc ? "Fix the graph to preview it" : Stats.Effects > 0 ? std::format("{} particles in the viewport", Stats.Particles).c_str() : "Plays at the viewport's pivot");
+		ImGui::TextDisabled("%s", !PreviewDesc ? "Fix the graph to preview it" : Stats.Effects > 0 ? std::format("{} particles in the viewport", Stats.Particles).c_str()
+		                                                                                           : "Plays at the viewport's pivot");
 	}});
 }
 

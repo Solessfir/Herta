@@ -270,9 +270,9 @@ std::uint32_t FAudioGraphCompiler::EmitMapRange(const FGraphNode& Node)
 	const FSoundControl Input = Control(Node, "Value", 0.f);
 	const std::array Range{FloatProperty(Node, "inMin"), FloatProperty(Node, "inMax"), FloatProperty(Node, "outMin"), FloatProperty(Node, "outMax")};
 	if (Range[0] == Range[1] || !std::ranges::all_of(Range, [](const float Value)
-	    {
-		    return std::isfinite(Value);
-	    }))
+	{
+		return std::isfinite(Value);
+	}))
 	{
 		Fail(Node.Id, "A Map Range needs finite values and an input range that is not empty");
 	}
@@ -427,7 +427,8 @@ std::optional<std::uint32_t> FAudioGraphCompiler::EmitAudio(const FGraphNode& No
 		return std::nullopt;
 	}
 
-	const ESoundNodeType Type = bGain ? ESoundNodeType::Gain : Node.Type == "LowPass" ? ESoundNodeType::LowPass : ESoundNodeType::HighPass;
+	const ESoundNodeType Type = bGain ? ESoundNodeType::Gain : Node.Type == "LowPass" ? ESoundNodeType::LowPass
+	                                                                                  : ESoundNodeType::HighPass;
 	return Push({.Type = Type, .Inputs = {*Input}, .Control = Setting});
 }
 
@@ -460,8 +461,10 @@ void FAudioGraphCompiler::Run()
 			Fail(Node->Id, std::format("Input names must be unique, not empty, and at most 64 characters ('{}')", Name));
 		}
 
-		const ESoundParameterType Type = bFloat ? ESoundParameterType::Float : bBool ? ESoundParameterType::Bool : ESoundParameterType::Trigger;
-		const float Default = bFloat ? FloatProperty(*Node, "default") : bBool && std::get<bool>(Property(*Node, "default")) ? 1.f : 0.f;
+		const ESoundParameterType Type = bFloat ? ESoundParameterType::Float : bBool ? ESoundParameterType::Bool
+		                                                                             : ESoundParameterType::Trigger;
+		const float Default = bFloat ? FloatProperty(*Node, "default") : bBool && std::get<bool>(Property(*Node, "default")) ? 1.f
+		                                                                                                                     : 0.f;
 		Parameters.emplace(Node->Id, static_cast<std::uint32_t>(Result.Graph.Parameters.size()));
 		Result.Graph.Parameters.push_back({.Name = Name, .Type = Type, .Default = Default});
 	}

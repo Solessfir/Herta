@@ -45,7 +45,8 @@ enum class EGate : std::uint8_t
 	}
 
 	const bool bOn = Voice.Controls[Node.Play] != 0.f;
-	const EGate Gate = bOn && !Player.bWasOn ? EGate::Open : !bOn && Player.bWasOn ? EGate::Close : EGate::None;
+	const EGate Gate = bOn && !Player.bWasOn ? EGate::Open : !bOn && Player.bWasOn ? EGate::Close
+	                                                                               : EGate::None;
 	Player.bWasOn = bOn;
 	return Gate;
 }

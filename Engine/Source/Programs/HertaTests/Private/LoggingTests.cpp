@@ -1,5 +1,4 @@
 #include "Herta/Core/Log.h"
-
 #include "TestFiles.h"
 
 #include <doctest/doctest.h>

@@ -614,6 +614,7 @@ struct FEditorFramework::FImplementation
 	// The session reads meshes and materials through PlayAssets, so it is released first.
 	std::unique_ptr<IGameAssets> PlayAssets;
 	std::unique_ptr<FGameSession> PlaySession;
+
 	// Region levels the viewport previews, by resolved path, read once; empty after a failed read, which logs once.
 	struct FRegionPreviewLevel
 	{

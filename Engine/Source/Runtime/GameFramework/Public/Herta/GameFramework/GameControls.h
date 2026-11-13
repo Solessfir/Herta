@@ -91,6 +91,7 @@ struct FGameKeyboardState
 [[nodiscard]] FGameInput BuildKeyboardGameInput(const FGameBindings& Bindings, const FGameKeyboardState& State);
 // A gamepad's buttons through the bindings, with movement and looking on the sticks.
 [[nodiscard]] FGameGamepad GetBoundGamepad(const FGameBindings& Bindings, const FGamepadState& Gamepad);
+
 // One row of the HUD's controls: the keys bound now, each its own key cap, and what they do.
 struct FGameControlHint
 {

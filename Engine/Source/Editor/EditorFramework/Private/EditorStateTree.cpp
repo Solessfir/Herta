@@ -1,5 +1,4 @@
 #include "EditorFrameworkPrivate.h"
-
 #include "Herta/StateTreeCompiler/StateTreeCompiler.h"
 
 namespace Herta
@@ -125,7 +124,8 @@ void FEditorFramework::FImplementation::DrawStateTreePanel()
 					const FStateTreeTransitionDesc& Desc = StateTreeOutline->Transitions[Transition];
 					constexpr std::array<std::string_view, 5> Triggers{"When done", "When succeeded", "When failed", "Every think", "On event"};
 					const std::string Event = Desc.Trigger == EStateTreeTrigger::OnEvent ? " " + StateTreeOutline->Names[Desc.Event] : std::string();
-					const std::string Target = Desc.Kind == EStateTreeTransitionKind::GotoState ? StateTreeOutline->States[Desc.Target].Name : Desc.Kind == EStateTreeTransitionKind::Succeed ? "succeed the parent" : "fail the parent";
+					const std::string Target = Desc.Kind == EStateTreeTransitionKind::GotoState ? StateTreeOutline->States[Desc.Target].Name : Desc.Kind == EStateTreeTransitionKind::Succeed ? "succeed the parent"
+					                                                                                                                                                                          : "fail the parent";
 					Tip += std::format("{}{}{}: {}{}", Tip.empty() ? "" : "\n", Triggers[static_cast<std::size_t>(Desc.Trigger)], Event, Target, Desc.ConditionCount > 0 ? " (if its conditions hold)" : "");
 				}
 

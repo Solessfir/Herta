@@ -118,6 +118,9 @@ workspace "Herta"
 
     if HertaToolsetSuffix ~= "" then
         toolset "clang"
+        -- clang-cl lowers _Float16 conversions, which fastgltf uses, to compiler-rt calls that it does not link by itself.
+        libdirs { "$(LLVMInstallDir)/lib/clang/$(LLVMIncludeVersion)/lib/windows" }
+        links { "clang_rt.builtins-x86_64" }
     end
 
     HertaApplyToolchainSettings()

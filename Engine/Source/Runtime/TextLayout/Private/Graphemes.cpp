@@ -90,15 +90,15 @@ struct FBreakState
 
 void Advance(FBreakState& State, const Unicode::FGraphemeRange& Properties) noexcept
 {
-	State.Emoji = Properties.bExtendedPictographic                                       ? 1
-	            : State.Emoji == 1 && Properties.Break == EGraphemeBreak::Extend ? 1
-	            : State.Emoji == 1 && Properties.Break == EGraphemeBreak::ZWJ    ? 2
-	                                                                             : 0;
+	State.Emoji = Properties.bExtendedPictographic                                 ? 1
+	              : State.Emoji == 1 && Properties.Break == EGraphemeBreak::Extend ? 1
+	              : State.Emoji == 1 && Properties.Break == EGraphemeBreak::ZWJ    ? 2
+	                                                                               : 0;
 	State.RegionalIndicators = Properties.Break == EGraphemeBreak::Regional_Indicator ? State.RegionalIndicators + 1 : 0;
-	State.Conjunct = Properties.Conjunct == EIndicConjunct::Consonant                 ? 1
-	               : State.Conjunct != 0 && Properties.Conjunct == EIndicConjunct::Linker ? 2
-	               : State.Conjunct != 0 && Properties.Conjunct == EIndicConjunct::Extend ? State.Conjunct
-	                                                                                      : 0;
+	State.Conjunct = Properties.Conjunct == EIndicConjunct::Consonant                       ? 1
+	                 : State.Conjunct != 0 && Properties.Conjunct == EIndicConjunct::Linker ? 2
+	                 : State.Conjunct != 0 && Properties.Conjunct == EIndicConjunct::Extend ? State.Conjunct
+	                                                                                        : 0;
 	State.Previous = Properties.Break;
 }
 }
@@ -117,7 +117,10 @@ FUtf8CodePoint DecodeUtf8(const std::string_view Text, const std::size_t Offset)
 	};
 
 	const std::uint8_t Lead = Byte(0);
-	const std::uint32_t Length = Lead < 0x80 ? 1 : (Lead & 0xE0) == 0xC0 ? 2 : (Lead & 0xF0) == 0xE0 ? 3 : (Lead & 0xF8) == 0xF0 ? 4 : 0;
+	const std::uint32_t Length = Lead < 0x80 ? 1 : (Lead & 0xE0) == 0xC0 ? 2
+	                                           : (Lead & 0xF0) == 0xE0   ? 3
+	                                           : (Lead & 0xF8) == 0xF0   ? 4
+	                                                                     : 0;
 	if (Length == 0)
 	{
 		return Invalid;
@@ -301,7 +304,8 @@ std::size_t SnapToGrapheme(const std::string_view Text, const std::size_t Offset
 
 	const std::size_t Start = GetPreviousGrapheme(Text, Offset);
 	const std::size_t End = GetNextGrapheme(Text, Start);
-	return End == Offset ? Offset : bForward ? End : Start;
+	return End == Offset ? Offset : bForward ? End
+	                                         : Start;
 }
 
 std::optional<FTextEdit> RepairGraphemeEdit(const std::string_view Before, const std::string_view After)

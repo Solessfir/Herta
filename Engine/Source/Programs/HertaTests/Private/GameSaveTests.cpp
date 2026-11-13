@@ -1,8 +1,7 @@
-#include "TestFiles.h"
-
 #include "Herta/GameFramework/GameAssets.h"
 #include "Herta/GameFramework/GameSave.h"
 #include "Herta/GameFramework/GameSession.h"
+#include "TestFiles.h"
 
 #include <doctest/doctest.h>
 

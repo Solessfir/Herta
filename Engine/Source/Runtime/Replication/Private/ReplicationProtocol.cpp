@@ -296,7 +296,7 @@ void WriteMover(FBinaryWriter& Writer, const FMoverSnapshot& Mover)
 {
 	const FMoverState& State = Mover.State;
 	const bool bVectors = IsFinite(State.Foot) && IsFinite(State.PreviousFoot) && IsFinite(State.Velocity) && IsFinite(State.Ground.FootPosition) && IsFinite(State.Ground.Velocity) && IsFinite(State.Ground.GroundVelocity)
-	    && IsFinite(State.Ground.GroundNormal) && IsFinite(State.Ground.WallNormal) && IsFinite(State.LastJumpFoot) && (!State.LastWallNormal || IsFinite(*State.LastWallNormal)) && (!State.WallRunNormal || IsFinite(*State.WallRunNormal));
+	                      && IsFinite(State.Ground.GroundNormal) && IsFinite(State.Ground.WallNormal) && IsFinite(State.LastJumpFoot) && (!State.LastWallNormal || IsFinite(*State.LastWallNormal)) && (!State.WallRunNormal || IsFinite(*State.WallRunNormal));
 	const bool bScalars = std::isfinite(State.AirborneSeconds) && std::isfinite(State.JumpBufferSeconds) && std::isfinite(State.TakeoffSpeed) && std::isfinite(State.AccelerationSeconds) && std::isfinite(State.StoppingSeconds) && std::isfinite(State.FallSpeed) && std::isfinite(State.LandingSeconds);
 	return bVectors && bScalars && std::ranges::all_of(Mover.Modes, [](const std::vector<float>& Mode)
 	{

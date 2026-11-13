@@ -1388,7 +1388,8 @@ int RunGame(const FGameOptions& Options)
 			}
 
 			// Agents need their StateTree and the cooked navigation to think and walk; in a network game they think on the server.
-			const std::vector<FGameAgentState> Agents = Host ? Host->GetSession().GetAgentStates() : Client ? std::vector<FGameAgentState>{} : Session->GetAgentStates();
+			const std::vector<FGameAgentState> Agents = Host ? Host->GetSession().GetAgentStates() : Client ? std::vector<FGameAgentState>{}
+			                                                                                                : Session->GetAgentStates();
 			if (!Agents.empty())
 			{
 				const auto Thinking = std::ranges::count_if(Agents, [](const FGameAgentState& Agent)

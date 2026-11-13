@@ -198,6 +198,7 @@ int Cook(const std::span<char* const> Arguments)
 
 	std::error_code TemporaryError;
 	const std::filesystem::path StageRoot = bLoose ? OutputRoot : std::filesystem::temp_directory_path(TemporaryError) / StageName;
+
 	struct FCleanup
 	{
 		~FCleanup()
@@ -344,7 +345,8 @@ int Mod(const std::span<char* const> Arguments)
 	const std::filesystem::path Repository = FindRepositoryRoot();
 	if (Source.empty() || Project.empty() || Output.empty() || !Options || Repository.empty())
 	{
-		Report(!Options ? Options.error() : Repository.empty() ? "Cannot find the Herta checkout with Engine/Content to cook from" : "mod needs --source=, --project=, and --output=");
+		Report(!Options ? Options.error() : Repository.empty() ? "Cannot find the Herta checkout with Engine/Content to cook from"
+		                                                       : "mod needs --source=, --project=, and --output=");
 		return 2;
 	}
 
@@ -479,7 +481,8 @@ int Verify(const std::span<char* const> Arguments)
 		Bytes += Entry.Size;
 	}
 
-	std::println("{}: {} files, {:.1f} MiB, {}", PackagePath, (*Opened)->GetEntries().size(), static_cast<double>(Bytes) / 1048576., (*Opened)->IsTrusted() ? std::format("signed with trusted key {}", (*Opened)->GetHeader().SigningKey) : (*Opened)->GetHeader().bSigned ? std::string("signed with an unchecked key") : std::string("unsigned"));
+	std::println("{}: {} files, {:.1f} MiB, {}", PackagePath, (*Opened)->GetEntries().size(), static_cast<double>(Bytes) / 1048576., (*Opened)->IsTrusted() ? std::format("signed with trusted key {}", (*Opened)->GetHeader().SigningKey) : (*Opened)->GetHeader().bSigned ? std::string("signed with an unchecked key")
+	                                                                                                                                                                                                                                                                        : std::string("unsigned"));
 	return 0;
 }
 }

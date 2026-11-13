@@ -288,7 +288,8 @@ std::expected<FMeshSliceResult, FAnimationError> SplitSkinnedMesh(const FSkinned
 			}
 
 			// Rotate so the corner alone on its side comes first, keeping the winding.
-			const std::size_t Lone = bFront[0] != bFront[1] && bFront[0] != bFront[2] ? 0 : bFront[1] != bFront[0] && bFront[1] != bFront[2] ? 1 : 2;
+			const std::size_t Lone = bFront[0] != bFront[1] && bFront[0] != bFront[2] ? 0 : bFront[1] != bFront[0] && bFront[1] != bFront[2] ? 1
+			                                                                                                                                 : 2;
 			const std::uint32_t L = Corner[Lone];
 			const std::uint32_t B = Corner[(Lone + 1) % 3];
 			const std::uint32_t C = Corner[(Lone + 2) % 3];

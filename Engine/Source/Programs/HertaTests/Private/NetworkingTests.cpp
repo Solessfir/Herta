@@ -53,30 +53,51 @@ TEST_CASE("Network transports connect over UDP and loopback and exchange reliabl
 	REQUIRE(Outgoing);
 	std::vector<FNetworkConnectionEvent> ServerEvents;
 	std::vector<FNetworkMessage> ServerMessages;
-	REQUIRE(PollUntil(**Server, ServerEvents, ServerMessages, [&] { return !ServerEvents.empty(); }));
+	REQUIRE(PollUntil(**Server, ServerEvents, ServerMessages, [&]
+	{
+		return !ServerEvents.empty();
+	}));
 	REQUIRE(ServerEvents.front().State == ENetworkConnectionState::Requested);
 	const FNetworkConnectionId Incoming = ServerEvents.front().Connection;
 	REQUIRE((*Server)->Accept(Incoming));
 
 	std::vector<FNetworkConnectionEvent> ClientEvents;
 	std::vector<FNetworkMessage> ClientMessages;
-	REQUIRE(PollUntil(**Client, ClientEvents, ClientMessages, [&] { return std::ranges::any_of(ClientEvents, [](const auto& Event) { return Event.State == ENetworkConnectionState::Connected; }); }));
+	REQUIRE(PollUntil(**Client, ClientEvents, ClientMessages, [&]
+	{
+		return std::ranges::any_of(ClientEvents, [](const auto& Event)
+		{
+			return Event.State == ENetworkConnectionState::Connected;
+		});
+	}));
 	REQUIRE((*Client)->Send(*Outgoing, Bytes("hello"), ENetworkDelivery::Reliable));
 	REQUIRE((*Client)->Send(*Outgoing, Bytes("state"), ENetworkDelivery::Unreliable));
-	REQUIRE(PollUntil(**Server, ServerEvents, ServerMessages, [&] { return ServerMessages.size() >= 2; }));
+	REQUIRE(PollUntil(**Server, ServerEvents, ServerMessages, [&]
+	{
+		return ServerMessages.size() >= 2;
+	}));
 	CHECK(ServerMessages[0].Data == Bytes("hello"));
 	CHECK(ServerMessages[0].Connection == Incoming);
 
 	(*Client)->Close(*Outgoing, "Bye");
 	ServerEvents.clear();
-	REQUIRE(PollUntil(**Server, ServerEvents, ServerMessages, [&] { return std::ranges::any_of(ServerEvents, [](const auto& Event) { return Event.State == ENetworkConnectionState::Closed; }); }));
+	REQUIRE(PollUntil(**Server, ServerEvents, ServerMessages, [&]
+	{
+		return std::ranges::any_of(ServerEvents, [](const auto& Event)
+		{
+			return Event.State == ENetworkConnectionState::Closed;
+		});
+	}));
 
 	// A loopback pair joins two transports in this process, and each sees only its own end.
 	const auto Pair = (*Server)->ConnectLoopback(**Client);
 	REQUIRE(Pair);
 	REQUIRE((*Server)->Send(Pair->first, Bytes("loop"), ENetworkDelivery::Reliable));
 	ClientMessages.clear();
-	REQUIRE(PollUntil(**Client, ClientEvents, ClientMessages, [&] { return !ClientMessages.empty(); }));
+	REQUIRE(PollUntil(**Client, ClientEvents, ClientMessages, [&]
+	{
+		return !ClientMessages.empty();
+	}));
 	CHECK(ClientMessages.front().Connection == Pair->second);
 	CHECK(ClientMessages.front().Data == Bytes("loop"));
 }

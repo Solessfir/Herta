@@ -1578,7 +1578,8 @@ std::expected<void, FLevelError> ValidateLevelRegions(const std::span<const FLev
 		if (!Region.Id.IsValid() || std::ranges::any_of(Seen, [&Region](const FObjectId& Other)
 		{
 			return Other == Region.Id;
-		}) || !IsValidName(Region.Name) || !bRelative || !bOffset)
+		}) || !IsValidName(Region.Name)
+		    || !bRelative || !bOffset)
 		{
 			return LevelError(std::format("Region '{}' needs a unique ID, a name, a finite offset, and a relative .hlevel path", Region.Name));
 		}

@@ -361,14 +361,14 @@ void DrawAssetTooltip(const FPreviewAssetOption& Asset, const FPreviewAssets* co
 		ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + Width);
 		const auto Name = Leaf(Asset.Label);
 		ImGui::TextUnformatted(Name.data(), Name.data() + Name.size());
-		ImGui::TextDisabled("%s", IsPlaceableContentAsset(Asset) ? "Static Mesh" : Asset.Importer == "Material" ? "Material"
-		                                                                       : Asset.Importer == "Texture"    ? "Texture"
-		                                                                       : Asset.Importer == "Sound"      ? "Sound"
-		                                                                       : Asset.Importer == "AudioGraph" ? "Audio Graph"
-		                                                                       : Asset.Importer == "VfxGraph"   ? "VFX Graph"
-		                                                                       : Asset.Importer == "StateTree"  ? "StateTree"
+		ImGui::TextDisabled("%s", IsPlaceableContentAsset(Asset) ? "Static Mesh" : Asset.Importer == "Material"    ? "Material"
+		                                                                       : Asset.Importer == "Texture"       ? "Texture"
+		                                                                       : Asset.Importer == "Sound"         ? "Sound"
+		                                                                       : Asset.Importer == "AudioGraph"    ? "Audio Graph"
+		                                                                       : Asset.Importer == "VfxGraph"      ? "VFX Graph"
+		                                                                       : Asset.Importer == "StateTree"     ? "StateTree"
 		                                                                       : Asset.Importer == "GameplayGraph" ? "Gameplay Graph"
-		                                                                                                        : "Asset");
+		                                                                                                           : "Asset");
 		ImGui::Separator();
 		const FPreviewMeshSlot* const Cached = Assets ? Assets->GetCachedAsset(Asset.Id) : nullptr;
 		if (ImGui::BeginTable("##AssetMetadata", 2, ImGuiTableFlags_SizingStretchProp, {Width, 0.f}))
@@ -578,8 +578,8 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, const std::size_t Index, FC
 	else
 	{
 		ToolUIIcon(IsPlaceableContentAsset(Asset) ? EToolUIMenuIcon::Cube : Asset.Importer == "Material" ? EToolUIMenuIcon::Material
-		                                                    : IsSoundContentAsset(Asset)    ? EToolUIMenuIcon::Sound
-		                                                                                    : EToolUIMenuIcon::Panel,
+		                                                                : IsSoundContentAsset(Asset)     ? EToolUIMenuIcon::Sound
+		                                                                                                 : EToolUIMenuIcon::Panel,
 		    (Minimum.x + Maximum.x) * 0.5f, (Minimum.y + Maximum.y) * 0.5f, std::max(Scale, IconSize / 32.f));
 	}
 

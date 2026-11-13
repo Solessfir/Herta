@@ -1,5 +1,4 @@
 #include "EditorFrameworkPrivate.h"
-
 #include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/LocalizationPipeline/LocalizationPipeline.h"
 #include "Herta/Platform/FileSystem.h"
@@ -53,7 +52,8 @@ constexpr auto CatalogPollInterval = std::chrono::seconds(1);
 	return std::ranges::search(Text, Search, [](const char Left, const char Right)
 	{
 		return std::tolower(static_cast<unsigned char>(Left)) == std::tolower(static_cast<unsigned char>(Right));
-	}).begin() != Text.end() || Search.empty();
+	}).begin() != Text.end()
+	       || Search.empty();
 }
 }
 

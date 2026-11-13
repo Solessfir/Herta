@@ -526,12 +526,14 @@ std::span<const std::string_view> GetStateTreeChoices(const std::string_view Nod
 
 	if (NodeType == "Condition")
 	{
-		return Property == "type" ? std::span<const std::string_view>(ConditionChoices) : Property == "compare" ? std::span<const std::string_view>(CompareChoices) : std::span<const std::string_view>{};
+		return Property == "type" ? std::span<const std::string_view>(ConditionChoices) : Property == "compare" ? std::span<const std::string_view>(CompareChoices)
+		                                                                                                        : std::span<const std::string_view>{};
 	}
 
 	if (NodeType == "Transition")
 	{
-		return Property == "trigger" ? std::span<const std::string_view>(TriggerChoices) : Property == "kind" ? std::span<const std::string_view>(KindChoices) : std::span<const std::string_view>{};
+		return Property == "trigger" ? std::span<const std::string_view>(TriggerChoices) : Property == "kind" ? std::span<const std::string_view>(KindChoices)
+		                                                                                                      : std::span<const std::string_view>{};
 	}
 
 	return NodeType == "Consideration" && Property == "input" ? std::span<const std::string_view>(InputChoices) : std::span<const std::string_view>{};

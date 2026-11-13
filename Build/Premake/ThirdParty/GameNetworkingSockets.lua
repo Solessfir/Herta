@@ -86,7 +86,7 @@ function HertaGameNetworkingSockets()
         filter { "files:**.proto", "system:windows" }
             buildcommands {
                 'if not exist "' .. path.translate(Generated) .. '" mkdir "' .. path.translate(Generated) .. '"',
-                '"' .. path.translate(path.join(BinaryRoot, "Protoc.exe")) .. '" --cpp_out="' .. path.translate(Generated) .. '" -I"%{file.directory}" "%{file.abspath}"',
+                '"' .. path.translate(path.join(BinaryRoot, "Protoc.exe")) .. '" --cpp_out="' .. path.translate(Generated) .. '" -I"' .. path.translate(path.join(Root, "common")) .. '" "%{file.abspath}"',
             }
 
         filter { "files:**.proto", "system:linux" }

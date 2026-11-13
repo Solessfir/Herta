@@ -1,7 +1,6 @@
-#include "TestFiles.h"
-
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/AudioGraph/AudioGraph.h"
+#include "TestFiles.h"
 
 #include <doctest/doctest.h>
 
@@ -42,7 +41,8 @@ struct FGraphBuilder
 
 [[nodiscard]] std::optional<FAssetId> ResolveTestWave(const std::string_view Path)
 {
-	return Path == "Audio/HitA.wav" ? std::optional(HitA) : Path == "Audio/HitB.wav" ? std::optional(HitB) : std::nullopt;
+	return Path == "Audio/HitA.wav" ? std::optional(HitA) : Path == "Audio/HitB.wav" ? std::optional(HitB)
+	                                                                                 : std::nullopt;
 }
 
 // Trigger -> random wave -> pitch and gain from an impulse -> low pass -> output.

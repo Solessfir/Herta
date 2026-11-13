@@ -39,6 +39,7 @@ public:
 	// Null keeps the material imported with the mesh.
 	[[nodiscard]] virtual const FRenderMaterial* FindMaterial(const FAssetId& Asset) const = 0;
 	[[nodiscard]] virtual std::shared_ptr<const FCookedTexture> FindEnvironment(const FAssetId& Asset) const = 0;
+
 	// A skinned model's cooked data, which characters animate and slice on the CPU. Null for models that are not skinned or not loaded.
 	[[nodiscard]] virtual std::shared_ptr<const FCookedModel> FindSkinnedModel(const FAssetId&) const
 	{

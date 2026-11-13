@@ -70,9 +70,16 @@ TEST_CASE("Mod manifests parse their identity, compatibility, dependencies, load
 	CHECK(Parsed->Overrides == std::vector<std::string>{"Sandbox/Content/a.hasset"});
 
 	for (const std::string& Broken : {
-	         Manifest("1Starts"), Manifest("Has-Dash"), Manifest("Ok", "1.0"), Manifest("Ok", "1.0.0.0"), Manifest("Ok", "1.x.0"),
-	         Manifest("Ok", "1.0.0", R"([{"namespace": "A"}])"), Manifest("Ok", "1.0.0", "[]", "[]", "[]", R"(["../escape"])"),
-	         std::string(R"({"format": "HertaMod"})"), Manifest("Ok").replace(1, 0, R"("extra": 1, )"), std::string("not json"),
+	         Manifest("1Starts"),
+	         Manifest("Has-Dash"),
+	         Manifest("Ok", "1.0"),
+	         Manifest("Ok", "1.0.0.0"),
+	         Manifest("Ok", "1.x.0"),
+	         Manifest("Ok", "1.0.0", R"([{"namespace": "A"}])"),
+	         Manifest("Ok", "1.0.0", "[]", "[]", "[]", R"(["../escape"])"),
+	         std::string(R"({"format": "HertaMod"})"),
+	         Manifest("Ok").replace(1, 0, R"("extra": 1, )"),
+	         std::string("not json"),
 	     })
 	{
 		CHECK_FALSE_MESSAGE(ParseModManifest(Broken), Broken);

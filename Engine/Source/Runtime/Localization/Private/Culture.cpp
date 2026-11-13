@@ -514,7 +514,8 @@ std::string FCulture::FormatPattern(const std::string_view Pattern, const FCivil
 				break;
 			case 'M':
 			case 'L':
-				Result += Count >= 4 ? (Letter == 'L' ? Locale->MonthsStandalone[Month] : Locale->MonthsWide[Month]) : Count == 3 ? std::string(Locale->MonthsAbbreviated[Month]) : Padded(Time.Month, Count);
+				Result += Count >= 4 ? (Letter == 'L' ? Locale->MonthsStandalone[Month] : Locale->MonthsWide[Month]) : Count == 3 ? std::string(Locale->MonthsAbbreviated[Month])
+				                                                                                                                  : Padded(Time.Month, Count);
 				break;
 			case 'd':
 				Result += Padded(Time.Day, Count);

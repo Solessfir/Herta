@@ -1,5 +1,4 @@
 #include "GraphDocumentPanel.h"
-
 #include "Herta/StateTreeCompiler/StateTreeCompiler.h"
 
 #include <imgui.h>

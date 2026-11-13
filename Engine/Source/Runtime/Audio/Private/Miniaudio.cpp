@@ -1,5 +1,4 @@
 #include "AudioDevice.h"
-
 #include "Herta/Assets/Sound.h"
 #include "Herta/Audio/SoundDecoder.h"
 
@@ -15,12 +14,12 @@
 #define MINIAUDIO_IMPLEMENTATION
 // MSVC still reports external level 3 warnings from the implementation, which miniaudio's own conversions trip.
 #ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable : 4244)
+	#pragma warning(push)
+	#pragma warning(disable : 4244)
 #endif
 #include <miniaudio.h>
 #ifdef _MSC_VER
-#pragma warning(pop)
+	#pragma warning(pop)
 #endif
 
 namespace Herta

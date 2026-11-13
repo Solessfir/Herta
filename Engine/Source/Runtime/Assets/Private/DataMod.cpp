@@ -155,7 +155,8 @@ std::expected<FModManifest, FAssetError> ParseModManifest(const std::string_view
 	auto Overrides = ReadStrings(Fields[8], "overrides", &IsValidPackagePath);
 	if (!LoadAfter || !LoadBefore || !Overrides)
 	{
-		return std::unexpected(!LoadAfter ? LoadAfter.error() : !LoadBefore ? LoadBefore.error() : Overrides.error());
+		return std::unexpected(!LoadAfter ? LoadAfter.error() : !LoadBefore ? LoadBefore.error()
+		                                                                    : Overrides.error());
 	}
 
 	Manifest.LoadAfter = std::move(*LoadAfter);

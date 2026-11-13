@@ -1,11 +1,10 @@
 #include "Herta/Assets/CookedAsset.h"
 
-#include "Herta/Core/BinaryStream.h"
-
 #include "GameplayGraphSerialization.h"
+#include "Herta/Core/BinaryStream.h"
 #include "ParticleSerialization.h"
-#include "StateTreeSerialization.h"
 #include "SoundSerialization.h"
+#include "StateTreeSerialization.h"
 
 #include <algorithm>
 #include <cmath>

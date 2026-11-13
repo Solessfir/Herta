@@ -1,8 +1,7 @@
-#include "TestFiles.h"
-
 #include "Herta/Assets/CookedAsset.h"
 #include "Herta/Audio/AudioEngine.h"
 #include "Herta/Audio/SoundDecoder.h"
+#include "TestFiles.h"
 
 #include <doctest/doctest.h>
 

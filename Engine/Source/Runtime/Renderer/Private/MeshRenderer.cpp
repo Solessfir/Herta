@@ -24,12 +24,12 @@
 #include <algorithm>
 #include <array>
 #include <bit>
-#include <numbers>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <format>
 #include <limits>
+#include <numbers>
 #include <numeric>
 #include <ranges>
 #include <unordered_map>
@@ -293,7 +293,7 @@ void ExpandParticles(const FMatrix4& View, const FMatrix4& WorldToClip, const st
 			return Points[static_cast<std::size_t>(std::clamp<std::ptrdiff_t>(Index, 0, static_cast<std::ptrdiff_t>(Points.size()) - 1))];
 		};
 
-		const auto Curve = [&Point](const std::ptrdiff_t Segment, const float T, FVector3 FRenderRibbonPoint::* const Member)
+		const auto Curve = [&Point](const std::ptrdiff_t Segment, const float T, FVector3 FRenderRibbonPoint::*const Member)
 		{
 			return CatmullRom(Point(Segment - 1).*Member, Point(Segment).*Member, Point(Segment + 1).*Member, Point(Segment + 2).*Member, T);
 		};
@@ -1055,6 +1055,7 @@ struct FMeshRenderer::FImplementation
 	std::vector<std::vector<std::byte>> ShadowKeys;
 	std::vector<std::byte> ShadowKeyScratch;
 	std::uint64_t FrameIndex = 0;
+
 	// Deforming meshes' previous positions for motion vectors: the GPU buffer the velocity prepass reads, what to upload to it this frame, and this frame's positions for the next.
 	struct FDeformingMesh
 	{
