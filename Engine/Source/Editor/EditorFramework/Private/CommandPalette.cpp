@@ -207,7 +207,7 @@ void FEditorFramework::FImplementation::DrawCommandPalette()
 			const FPreviewAssetOption& Option = Options[Entry.Index];
 			const std::size_t Slash = Option.Label.find_last_of('/');
 			NavigateContentFolder(ContentBrowserState, Slash == std::string::npos ? std::string{} : Option.Label.substr(0, Slash), Assets.get());
-			ContentBrowserState.Selected = Option.Id;
+			ContentBrowserState.SelectAsset(Option.Id);
 			ContentBrowserState.bFocusRequested = true;
 			if (ToolUI->IsDocumentInFront())
 			{

@@ -47,7 +47,7 @@ bool FinishFolderRename(FContentBrowserState& State, FPreviewAssets& Assets)
 		return false;
 	}
 
-	State.SelectedFolder = *Renamed;
+	State.SelectFolder(*Renamed);
 	State.RenamingFolder.clear();
 	State.bFocusFolderName = false;
 	State.FolderError.clear();
@@ -64,7 +64,7 @@ void NavigateContentFolder(FContentBrowserState& State, const std::string& Folde
 	}
 
 	State.Folder = bRenamedTarget ? State.SelectedFolder : Folder;
-	State.SelectedFolder.clear();
+	State.ClearSelection();
 	State.Filter();
 }
 
@@ -112,9 +112,13 @@ void DrawAssetModals(FContentBrowserState& State, FPreviewAssets& Assets)
 
 	if (State.MoveRequested)
 	{
-		if (auto Moved = Assets.MoveAssetToFolder(State.MoveRequested->first, State.MoveRequested->second); !Moved)
+		for (const FAssetId Asset : State.MoveRequested->first)
 		{
-			State.FolderError = Moved.error().Message;
+			if (auto Moved = Assets.MoveAssetToFolder(Asset, State.MoveRequested->second); !Moved)
+			{
+				State.FolderError = Moved.error().Message;
+				break;
+			}
 		}
 
 		State.MoveRequested.reset();
@@ -158,8 +162,16 @@ void DrawAssetModals(FContentBrowserState& State, FPreviewAssets& Assets)
 
 	if (ImGui::BeginPopupModal("Delete asset", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 	{
-		const auto Option = std::ranges::find(State.Assets, State.DeletingAsset, &FPreviewAssetOption::Id);
-		ImGui::Text("Delete %s?", Option != State.Assets.end() ? Option->Label.c_str() : "this asset");
+		const auto Option = State.DeletingAssets.size() == 1 ? std::ranges::find(State.Assets, State.DeletingAssets.front(), &FPreviewAssetOption::Id) : State.Assets.end();
+		if (State.DeletingAssets.size() == 1)
+		{
+			ImGui::Text("Delete %s?", Option != State.Assets.end() ? Option->Label.c_str() : "this asset");
+		}
+		else
+		{
+			ImGui::Text("Delete %zu assets?", State.DeletingAssets.size());
+		}
+
 		ImGui::TextDisabled("It moves to the project's Saved/Trash, from where asset.restore puts it back.");
 		if (!State.AssetError.empty())
 		{
@@ -168,14 +180,22 @@ void DrawAssetModals(FContentBrowserState& State, FPreviewAssets& Assets)
 
 		if (ImGui::Button("Delete", {110.f * Scale, 0.f}))
 		{
-			if (auto Deleted = Assets.DeleteAsset(State.DeletingAsset); Deleted)
+			// Each asset that went to the trash leaves the list, so a failure keeps only the rest for another try.
+			while (!State.DeletingAssets.empty())
 			{
-				State.Selected = {};
-				ImGui::CloseCurrentPopup();
+				if (auto Deleted = Assets.DeleteAsset(State.DeletingAssets.front()); !Deleted)
+				{
+					State.AssetError = Deleted.error().Message;
+					break;
+				}
+
+				State.DeletingAssets.erase(State.DeletingAssets.begin());
 			}
-			else
+
+			if (State.DeletingAssets.empty())
 			{
-				State.AssetError = Deleted.error().Message;
+				State.ClearSelection();
+				ImGui::CloseCurrentPopup();
 			}
 		}
 
@@ -226,7 +246,7 @@ constexpr std::array<FContentTypeChip, 4> ContentTypeChips{{
 	return IM_COL32(Color.Red, Color.Green, Color.Blue, 255);
 }
 
-bool DrawFolderTile(const std::string& Path, FContentBrowserState& State, FPreviewAssets* const Assets, const ImVec2 Size, const float Scale, const bool bList)
+bool DrawFolderTile(const std::string& Path, const std::size_t Index, FContentBrowserState& State, FPreviewAssets* const Assets, const ImVec2 Size, const float Scale, const bool bList)
 {
 	ImGui::PushID(Path.c_str());
 	ImGui::BeginGroup();
@@ -234,10 +254,9 @@ bool DrawFolderTile(const std::string& Path, FContentBrowserState& State, FPrevi
 	const bool bRenaming = Assets && State.RenamingFolder == Path;
 	bool bOpen = false;
 	const ImGuiSelectableFlags Flags = ImGuiSelectableFlags_AllowDoubleClick | static_cast<ImGuiSelectableFlags>(ImGuiSelectableFlags_NoPadWithHalfSpacing) | (bRenaming ? ImGuiSelectableFlags_AllowOverlap : 0);
-	if (ImGui::Selectable("##Folder", State.SelectedFolder == Path, Flags, Size))
+	if (ImGui::Selectable("##Folder", State.IsSelected(Path), Flags, Size))
 	{
-		State.SelectedFolder = Path;
-		State.Selected = {};
+		State.ClickTile(Index, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
 		bOpen = !bRenaming && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
 	}
 
@@ -252,7 +271,8 @@ bool DrawFolderTile(const std::string& Path, FContentBrowserState& State, FPrevi
 		{
 			FAssetId Dropped;
 			std::memcpy(&Dropped, Payload->Data, sizeof(Dropped));
-			State.MoveRequested = std::pair{Dropped, Path};
+			// Dragging one of several selected assets moves them all.
+			State.MoveRequested = std::pair{State.IsSelected(Dropped) ? State.GetSelectedGameAssets() : std::vector{Dropped}, Path};
 		}
 
 		ImGui::EndDragDropTarget();
@@ -418,15 +438,14 @@ void DrawAssetTooltip(const FPreviewAssetOption& Asset, const FPreviewAssets* co
 	ImGui::PopStyleVar(3);
 }
 
-void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State, const ImVec2 Size, const float Scale, const bool bList, FPreviewAssets* const Assets)
+void DrawAssetTile(const FPreviewAssetOption& Asset, const std::size_t Index, FContentBrowserState& State, const ImVec2 Size, const float Scale, const bool bList, FPreviewAssets* const Assets)
 {
 	const std::string Id = Asset.Id.ToString();
 	ImGui::PushID(Id.c_str());
 	const ImVec2 Start = ImGui::GetCursorScreenPos();
-	if (ImGui::Selectable("##Asset", State.Selected == Asset.Id, static_cast<ImGuiSelectableFlags>(ImGuiSelectableFlags_NoPadWithHalfSpacing) | ImGuiSelectableFlags_AllowDoubleClick, Size))
+	if (ImGui::Selectable("##Asset", State.IsSelected(Asset.Id), static_cast<ImGuiSelectableFlags>(ImGuiSelectableFlags_NoPadWithHalfSpacing) | ImGuiSelectableFlags_AllowDoubleClick, Size))
 	{
-		State.Selected = Asset.Id;
-		State.SelectedFolder.clear();
+		State.ClickTile(Index, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
 		if (Asset.Importer == "Material" && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 		{
 			State.OpenMaterialRequested = Asset.Id;
@@ -455,8 +474,13 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 
 	if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 	{
-		State.ContextAsset = State.Selected = Asset.Id;
-		State.SelectedFolder.clear();
+		// A right-click inside the selection keeps it, so the menu acts on every selected asset.
+		if (!State.IsSelected(Asset.Id))
+		{
+			State.SelectAsset(Asset.Id);
+		}
+
+		State.ContextAsset = Asset.Id;
 	}
 
 	// Every Game asset drags, onto a folder to move it; those the viewport takes also place or assign there.
@@ -464,7 +488,16 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 	if ((bPlaceable || Asset.Label.starts_with("Game/")) && ImGui::BeginDragDropSource())
 	{
 		ImGui::SetDragDropPayload(ContentAssetPayload, &Asset.Id, sizeof(Asset.Id));
-		ImGui::TextUnformatted(Asset.Label.c_str());
+		const std::size_t Moving = State.IsSelected(Asset.Id) ? State.GetSelectedGameAssets().size() : 1;
+		if (Moving > 1)
+		{
+			ImGui::Text("%zu assets", Moving);
+		}
+		else
+		{
+			ImGui::TextUnformatted(Asset.Label.c_str());
+		}
+
 		ImGui::TextDisabled("%s", !bPlaceable ? "Move to a folder" : Asset.Importer == "Material" ? "Assign material"
 		                                                         : IsSoundContentAsset(Asset)     ? "Place audio emitter"
 		                                                         : IsEffectContentAsset(Asset)    ? "Place particle emitter"
@@ -584,13 +617,21 @@ void FContentBrowserState::Refresh(const std::span<const FPreviewAssetOption> Op
 		bFocusFolderName = false;
 	}
 
-	if (!std::ranges::any_of(Assets, [this](const auto& Asset)
+	const auto IsMissing = [this](const FAssetId Asset)
 	{
-		return Asset.Id == Selected;
-	}))
+		return std::ranges::find(Assets, Asset, &FPreviewAssetOption::Id) == Assets.end();
+	};
+
+	if (IsMissing(Selected))
 	{
 		Selected = {};
 	}
+
+	std::erase_if(SelectedAssets, IsMissing);
+	std::erase_if(SelectedFolders, [&Paths](const std::string& Path)
+	{
+		return !Paths.contains(Path);
+	});
 
 	RefreshFolders();
 	Filter();
@@ -677,6 +718,162 @@ void FContentBrowserState::Filter()
 	}
 }
 
+void FContentBrowserState::ClickTile(const std::size_t Index, const bool bToggle, const bool bRange)
+{
+	const std::size_t Count = FolderMatches.size() + Matches.size();
+	if (Index >= Count)
+	{
+		return;
+	}
+
+	const auto IsFolder = [this](const std::size_t Tile)
+	{
+		return Tile < FolderMatches.size();
+	};
+
+	const auto FolderAt = [this](const std::size_t Tile) -> const std::string&
+	{
+		return Folders[FolderMatches[Tile]];
+	};
+
+	const auto AssetAt = [this](const std::size_t Tile)
+	{
+		return Assets[Matches[Tile - FolderMatches.size()]].Id;
+	};
+
+	const auto Add = [&](const std::size_t Tile)
+	{
+		if (IsFolder(Tile) && !std::ranges::contains(SelectedFolders, FolderAt(Tile)))
+		{
+			SelectedFolders.push_back(FolderAt(Tile));
+		}
+		else if (!IsFolder(Tile) && !std::ranges::contains(SelectedAssets, AssetAt(Tile)))
+		{
+			SelectedAssets.push_back(AssetAt(Tile));
+		}
+	};
+
+	// The tile clicked last joins the lists first, so toggling and ranges see the whole selection.
+	if (Selected.IsValid() && !std::ranges::contains(SelectedAssets, Selected))
+	{
+		SelectedAssets.push_back(Selected);
+	}
+
+	if (!SelectedFolder.empty() && !std::ranges::contains(SelectedFolders, SelectedFolder))
+	{
+		SelectedFolders.push_back(SelectedFolder);
+	}
+
+	bool bClickedSelected = true;
+	if (bRange && SelectionAnchor < Count)
+	{
+		if (!bToggle)
+		{
+			SelectedAssets.clear();
+			SelectedFolders.clear();
+		}
+
+		for (std::size_t Tile = std::min(SelectionAnchor, Index); Tile <= std::max(SelectionAnchor, Index); ++Tile)
+		{
+			Add(Tile);
+		}
+	}
+	else if (bToggle)
+	{
+		bClickedSelected = IsFolder(Index) ? std::erase(SelectedFolders, FolderAt(Index)) == 0 : std::erase(SelectedAssets, AssetAt(Index)) == 0;
+		if (bClickedSelected)
+		{
+			Add(Index);
+		}
+
+		SelectionAnchor = Index;
+	}
+	else
+	{
+		SelectedAssets.clear();
+		SelectedFolders.clear();
+		Add(Index);
+		SelectionAnchor = Index;
+	}
+
+	Selected = bClickedSelected && !IsFolder(Index) ? AssetAt(Index) : FAssetId{};
+	SelectedFolder = bClickedSelected && IsFolder(Index) ? FolderAt(Index) : std::string{};
+}
+
+void FContentBrowserState::SelectAllTiles()
+{
+	SelectedFolders.clear();
+	SelectedAssets.clear();
+	for (const std::size_t Index : FolderMatches)
+	{
+		SelectedFolders.push_back(Folders[Index]);
+	}
+
+	for (const std::size_t Index : Matches)
+	{
+		SelectedAssets.push_back(Assets[Index].Id);
+	}
+
+	// The tile clicked last stays the active one only while it is still shown.
+	if (!std::ranges::contains(SelectedAssets, Selected))
+	{
+		Selected = {};
+	}
+
+	if (!std::ranges::contains(SelectedFolders, SelectedFolder))
+	{
+		SelectedFolder.clear();
+	}
+
+	SelectionAnchor = 0;
+}
+
+void FContentBrowserState::SelectAsset(const FAssetId Asset)
+{
+	ClearSelection();
+	Selected = Asset;
+	SelectedAssets.push_back(Asset);
+}
+
+void FContentBrowserState::SelectFolder(const std::string& Path)
+{
+	ClearSelection();
+	SelectedFolder = Path;
+	SelectedFolders.push_back(Path);
+}
+
+void FContentBrowserState::ClearSelection()
+{
+	Selected = {};
+	SelectedFolder.clear();
+	SelectedAssets.clear();
+	SelectedFolders.clear();
+}
+
+bool FContentBrowserState::IsSelected(const FAssetId Asset) const
+{
+	return Asset.IsValid() && (Asset == Selected || std::ranges::contains(SelectedAssets, Asset));
+}
+
+bool FContentBrowserState::IsSelected(const std::string& Path) const
+{
+	return !Path.empty() && (Path == SelectedFolder || std::ranges::contains(SelectedFolders, Path));
+}
+
+std::vector<FAssetId> FContentBrowserState::GetSelectedGameAssets() const
+{
+	std::vector<FAssetId> Result;
+	for (const FPreviewAssetOption& Asset : Assets)
+	{
+		if (Asset.Label.starts_with("Game/") && IsSelected(Asset.Id))
+		{
+			Result.push_back(Asset.Id);
+		}
+	}
+
+	return Result;
+}
+
 std::string FContentBrowserState::GetImportDestination() const
 {
 	return Folder.starts_with("Game/") ? Folder.substr(5) : std::string{};
@@ -744,6 +941,20 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		const bool bFolderShortcutsAvailable = !ImGui::GetIO().AppFocusLost && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::GetIO().KeyMods == (ImGuiMod_Ctrl | ImGuiMod_Shift) && !(GImGui->CurrentItemFlags & ImGuiItemFlags_Disabled) && State.RenamingFolder.empty() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 		bool bNewFolder = bCanCreateFolder && bFolderShortcutsAvailable && ImGui::IsKeyPressed(ImGuiKey_N, false);
 		bool bOpenDirectory = Assets && bFolderShortcutsAvailable && ImGui::IsKeyPressed(ImGuiKey_O, false);
+		const ImGuiIO& IO = ImGui::GetIO();
+		const bool bGridShortcutsAvailable = !IO.AppFocusLost && !IO.WantTextInput && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && State.RenamingFolder.empty() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+		if (bGridShortcutsAvailable && IO.KeyMods == ImGuiMod_Ctrl && ImGui::IsKeyPressed(ImGuiKey_A, false))
+		{
+			State.SelectAllTiles();
+		}
+
+		if (Assets && !bBusy && bGridShortcutsAvailable && IO.KeyMods == ImGuiMod_None && ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+		{
+			State.DeletingAssets = State.GetSelectedGameAssets();
+			State.AssetError.clear();
+			State.bOpenAssetDelete = !State.DeletingAssets.empty();
+		}
+
 		std::string OpenDirectoryFolder = bOpenDirectory ? State.GetFileManagerFolder() : std::string{};
 		ImGui::PushStyleColor(ImGuiCol_NavCursor, {0.f, 0.f, 0.f, 0.f});
 		ImGui::PushStyleVar(ImGuiStyleVar_SelectableRounding, ImGui::GetStyle().FrameRounding);
@@ -1014,9 +1225,9 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 					State.bOpenAssetRename = true;
 				}
 
-				if (ToolUIMenuItem("Delete", EToolUIMenuIcon::Delete))
+				if (ToolUIMenuItem("Delete", EToolUIMenuIcon::Delete, nullptr, "Del"))
 				{
-					State.DeletingAsset = Context->Id;
+					State.DeletingAssets = State.IsSelected(Context->Id) ? State.GetSelectedGameAssets() : std::vector{Context->Id};
 					State.AssetError.clear();
 					State.bOpenAssetDelete = true;
 				}
@@ -1067,8 +1278,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			const auto Created = Assets->CreateFolder(CreationFolder, "New Folder", true);
 			if (Created)
 			{
-				State.SelectedFolder = *Created;
-				State.Selected = {};
+				State.SelectFolder(*Created);
 				State.Search.fill('\0');
 				for (auto Slash = Created->find('/'); Slash != std::string::npos; Slash = Created->find('/', Slash + 1))
 				{
@@ -1094,8 +1304,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			const auto Created = Text ? Assets->CreateTextAsset(CreationFolder, "New Audio Graph", AudioGraphExtension, *Text) : std::unexpected(FAssetError{Text.error().Message});
 			if (Created)
 			{
-				State.Selected = State.OpenAudioGraphRequested = *Created;
-				State.SelectedFolder.clear();
+				State.SelectAsset(State.OpenAudioGraphRequested = *Created);
 				State.Search.fill('\0');
 				State.Filter();
 				State.FolderError.clear();
@@ -1112,8 +1321,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			const auto Created = Text ? Assets->CreateTextAsset(CreationFolder, "New StateTree", StateTreeExtension, *Text) : std::unexpected(FAssetError{Text.error().Message});
 			if (Created)
 			{
-				State.Selected = State.OpenStateTreeRequested = *Created;
-				State.SelectedFolder.clear();
+				State.SelectAsset(State.OpenStateTreeRequested = *Created);
 				State.Search.fill('\0');
 				State.Filter();
 				State.FolderError.clear();
@@ -1130,8 +1338,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			const auto Created = Text ? Assets->CreateTextAsset(CreationFolder, "New Gameplay Graph", GameplayGraphExtension, *Text) : std::unexpected(FAssetError{Text.error().Message});
 			if (Created)
 			{
-				State.Selected = State.OpenGameplayGraphRequested = *Created;
-				State.SelectedFolder.clear();
+				State.SelectAsset(State.OpenGameplayGraphRequested = *Created);
 				State.Search.fill('\0');
 				State.Filter();
 				State.FolderError.clear();
@@ -1148,8 +1355,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			const auto Created = Text ? Assets->CreateTextAsset(CreationFolder, "New VFX Graph", VfxGraphExtension, *Text) : std::unexpected(FAssetError{Text.error().Message});
 			if (Created)
 			{
-				State.Selected = State.OpenVfxGraphRequested = *Created;
-				State.SelectedFolder.clear();
+				State.SelectAsset(State.OpenVfxGraphRequested = *Created);
 				State.Search.fill('\0');
 				State.Filter();
 				State.FolderError.clear();
@@ -1165,8 +1371,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			const auto Created = Assets->CreateMaterial(CreationFolder, "New Material");
 			if (Created)
 			{
-				State.Selected = State.OpenMaterialRequested = *Created;
-				State.SelectedFolder.clear();
+				State.SelectAsset(State.OpenMaterialRequested = *Created);
 				State.Search.fill('\0');
 				State.Filter();
 				State.FolderError.clear();
@@ -1347,7 +1552,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 					if (Match < State.FolderMatches.size())
 					{
 						const std::string& Path = State.Folders[State.FolderMatches[Match]];
-						if (DrawFolderTile(Path, State, Assets, Tile, Scale, bList))
+						if (DrawFolderTile(Path, Match, State, Assets, Tile, Scale, bList))
 						{
 							OpenFolder = Path;
 						}
@@ -1360,7 +1565,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 							ThumbnailAssets.push_back(Asset.Id);
 						}
 
-						DrawAssetTile(Asset, State, Tile, Scale, bList, Assets);
+						DrawAssetTile(Asset, Match, State, Tile, Scale, bList, Assets);
 					}
 				}
 			}

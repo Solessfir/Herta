@@ -23,6 +23,16 @@ struct FContentBrowserState
 	void AdjustZoom(float Wheel);
 	std::string GetImportDestination() const;
 	std::string GetFileManagerFolder() const;
+	// A click on the grid's tile at Index, counting folders before assets: alone it selects only that tile, bToggle adds or removes it, and bRange selects every tile from the previous click.
+	void ClickTile(std::size_t Index, bool bToggle, bool bRange);
+	void SelectAllTiles();
+	void SelectAsset(FAssetId Asset);
+	void SelectFolder(const std::string& Path);
+	void ClearSelection();
+	bool IsSelected(FAssetId Asset) const;
+	bool IsSelected(const std::string& Path) const;
+	// The selected project assets, which can move and be deleted; Engine content is read-only.
+	std::vector<FAssetId> GetSelectedGameAssets() const;
 
 	std::array<char, 256> Search{};
 	bool bFocusRequested = false;
@@ -30,6 +40,10 @@ struct FContentBrowserState
 	std::string SelectedFolder;
 	std::string ContextFolder;
 	FAssetId Selected{};
+	// Every selected tile beside Selected and SelectedFolder, which name the tile clicked last.
+	std::vector<FAssetId> SelectedAssets;
+	std::vector<std::string> SelectedFolders;
+	std::size_t SelectionAnchor = 0;
 	FAssetId ContextAsset{};
 	FAssetId OpenMaterialRequested{};
 	FAssetId OpenAudioGraphRequested{};
@@ -59,13 +73,13 @@ struct FContentBrowserState
 
 	// Asset rename and delete, each confirmed in its own modal.
 	FAssetId RenamingAsset{};
-	FAssetId DeletingAsset{};
+	std::vector<FAssetId> DeletingAssets;
 	std::array<char, 128> AssetName{};
 	std::string AssetError;
 	bool bOpenAssetRename = false;
 	bool bOpenAssetDelete = false;
-	// An asset dropped on a folder, moved once the frame's drawing ends.
-	std::optional<std::pair<FAssetId, std::string>> MoveRequested;
+	// Assets dropped on a folder, moved once the frame's drawing ends.
+	std::optional<std::pair<std::vector<FAssetId>, std::string>> MoveRequested;
 };
 
 bool IsPlaceableContentAsset(const FPreviewAssetOption& Asset) noexcept;

@@ -399,4 +399,76 @@ TEST_CASE("Failed in-memory level loading preserves document identity world sele
 	REQUIRE(Level.Undo());
 	CHECK_FALSE(Level.GetWorld().FindEntity(*Created));
 }
+
+TEST_CASE("Content browser selects several tiles with Ctrl, Shift, and select all")
+{
+	FContentBrowserState State;
+	const std::vector<FPreviewAssetOption> Options{
+	    FPreviewAssetOption{.Id = FAssetId{2, 1}, .Label = "Game/Props/Barrel.gltf", .Importer = "Gltf"},
+	    FPreviewAssetOption{.Id = FAssetId{2, 2}, .Label = "Game/Props/Crate.gltf", .Importer = "Gltf"},
+	    FPreviewAssetOption{.Id = FAssetId{2, 3}, .Label = "Game/Props/Lamp.gltf", .Importer = "Gltf"},
+	    FPreviewAssetOption{.Id = FAssetId{2, 4}, .Label = "Game/Props/Small/Cup.gltf", .Importer = "Gltf"},
+	    FPreviewAssetOption{.Id = FAssetId{2, 5}, .Label = "Engine/Shapes/Cube.gltf", .Importer = "Gltf"},
+	};
+
+	State.Refresh(Options, 1);
+	State.Folder = "Game/Props";
+	State.Filter();
+	REQUIRE(MatchedContentFolders(State) == std::vector<std::string>{"Game/Props/Small"});
+	REQUIRE(State.Matches.size() == 3);
+	const FAssetId First = Options[State.Matches[0]].Id;
+	const FAssetId Second = Options[State.Matches[1]].Id;
+	const FAssetId Third = Options[State.Matches[2]].Id;
+
+	State.ClickTile(1, false, false);
+	CHECK(State.IsSelected(First));
+	CHECK_FALSE(State.IsSelected(Second));
+	CHECK(State.Selected == First);
+
+	State.ClickTile(3, true, false);
+	CHECK(State.IsSelected(First));
+	CHECK(State.IsSelected(Third));
+	CHECK(State.Selected == Third);
+
+	// Ctrl on a selected tile removes it and leaves no active tile.
+	State.ClickTile(3, true, false);
+	CHECK_FALSE(State.IsSelected(Third));
+	CHECK_FALSE(State.Selected.IsValid());
+
+	// Shift selects from the last click to this one, folders included, and drops the rest.
+	State.ClickTile(2, false, false);
+	State.ClickTile(0, false, true);
+	CHECK(State.IsSelected(std::string{"Game/Props/Small"}));
+	CHECK(State.IsSelected(First));
+	CHECK(State.IsSelected(Second));
+	CHECK_FALSE(State.IsSelected(Third));
+	CHECK(State.SelectedFolder == "Game/Props/Small");
+
+	State.SelectAllTiles();
+	CHECK(State.IsSelected(std::string{"Game/Props/Small"}));
+	CHECK(State.IsSelected(First));
+	CHECK(State.IsSelected(Second));
+	CHECK(State.IsSelected(Third));
+	CHECK(State.GetSelectedGameAssets().size() == 3);
+
+	// Engine content never moves or deletes, even when selected.
+	State.SelectAsset(Options[4].Id);
+	CHECK(State.GetSelectedGameAssets().empty());
+
+	// A refresh forgets assets that no longer exist, and browsing elsewhere clears the selection.
+	State.SelectAllTiles();
+	std::vector<FPreviewAssetOption> Remaining = Options;
+	std::erase_if(Remaining, [Second](const FPreviewAssetOption& Option)
+	{
+		return Option.Id == Second;
+	});
+
+	State.Refresh(Remaining, 2);
+	CHECK_FALSE(State.IsSelected(Second));
+	CHECK(State.IsSelected(First));
+	NavigateContentFolder(State, "Game", nullptr);
+	CHECK_FALSE(State.IsSelected(First));
+	CHECK(State.SelectedAssets.empty());
+	CHECK(State.SelectedFolders.empty());
+}
 }
