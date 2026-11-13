@@ -120,5 +120,9 @@ function HertaNVRHI()
         filter "system:windows"
             defines { "NOMINMAX", "VK_USE_PLATFORM_WIN32_KHR" }
 
+        -- Building an empty top-level structure copies its empty instance list with memcpy from a null pointer, which is harmless at size zero.
+        filter { "system:linux", "configurations:Debug-ASan" }
+            buildoptions { "-fno-sanitize=nonnull-attribute" }
+
         filter {}
 end
