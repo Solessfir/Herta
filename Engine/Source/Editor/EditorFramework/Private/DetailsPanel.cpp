@@ -534,17 +534,19 @@ void DrawAssetComboPreview(const FComboPreviewSlot Slot, std::string_view Label)
 	const std::size_t Dot = Label.find_last_of('.');
 	const std::size_t Slash = Label.find_last_of('/');
 	const std::size_t Split = Dot != std::string_view::npos && Dot > 0 && (Slash == std::string_view::npos || Dot > Slash) ? Dot : Label.size();
+	const std::string_view Name = Label.substr(0, Split);
+	const std::string_view Extension = Label.substr(Split);
 	const ImGuiStyle& Style = ImGui::GetStyle();
 	const ImVec2 Origin{Slot.Minimum.x + Style.FramePadding.x, Slot.Minimum.y + Style.FramePadding.y};
 	const float Right = Slot.Minimum.x + Slot.Width - ImGui::GetFrameHeight() - Style.FramePadding.x;
-	const float ExtensionWidth = ImGui::CalcTextSize(Label.data() + Split, Label.data() + Label.size()).x;
-	const float NameWidth = ImGui::CalcTextSize(Label.data(), Label.data() + Split).x;
+	const float ExtensionWidth = ImGui::CalcTextSize(Extension.data(), Extension.data() + Extension.size()).x;
+	const float NameWidth = ImGui::CalcTextSize(Name.data(), Name.data() + Name.size()).x;
 	// A name too long for the field ends in an ellipsis and gives up its extension.
 	const bool bFits = Origin.x + NameWidth + ExtensionWidth <= Right;
-	ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), Origin, {Right, Origin.y + ImGui::GetFontSize()}, Right, Label.data(), Label.data() + Split, nullptr);
-	if (bFits && Split < Label.size())
+	ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), Origin, {Right, Origin.y + ImGui::GetFontSize()}, Right, Name.data(), Name.data() + Name.size(), nullptr);
+	if (bFits && !Extension.empty())
 	{
-		ImGui::GetWindowDrawList()->AddText({Origin.x + NameWidth, Origin.y}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Label.data() + Split, Label.data() + Label.size());
+		ImGui::GetWindowDrawList()->AddText({Origin.x + NameWidth, Origin.y}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Extension.data(), Extension.data() + Extension.size());
 	}
 }
 

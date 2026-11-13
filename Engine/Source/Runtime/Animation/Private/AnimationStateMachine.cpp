@@ -644,7 +644,7 @@ void FAnimationStateMachine::Update(const float DeltaSeconds)
 	{
 		const FAnimationTransitionDesc& Chosen = Desc.Transitions[*Taken];
 		Previous = Chosen.DurationSeconds > 0.f ? std::optional(Current) : std::nullopt;
-		Transition = Chosen.DurationSeconds > 0.f ? std::optional(*Taken) : std::nullopt;
+		Transition = Chosen.DurationSeconds > 0.f ? Taken : std::nullopt;
 		TransitionElapsed = 0.f;
 		// Returning to the state the legs kept playing picks up their cycle where it is.
 		Current = {.State = Chosen.To, .Phase = Chosen.To == Base.State && Desc.States[Base.State].bLoop ? Base.Phase : 0.f};

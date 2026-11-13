@@ -1261,7 +1261,7 @@ std::expected<FPhysicsRagdoll, FPhysicsError> FPhysicsWorld::CreateRagdoll(const
 		Joint.mNormalHalfConeAngle = Joint.mPlaneHalfConeAngle = Part.SwingRadians;
 		Joint.mTwistMinAngle = -Part.TwistRadians;
 		Joint.mTwistMaxAngle = Part.TwistRadians;
-		Implementation->AddJoint(Joint, Ragdoll.Parts[*Part.Parent], Ragdoll.Parts[Index]);
+		Implementation->AddJoint(Joint, Ragdoll.Parts[*Part.Parent], Ragdoll.Parts[Index]); // NOLINT(bugprone-unchecked-optional-access): validation gave every part after the root a parent
 		Ragdoll.Joints.push_back(Implementation->Constraints.back());
 	}
 

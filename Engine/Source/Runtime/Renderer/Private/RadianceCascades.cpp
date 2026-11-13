@@ -273,7 +273,7 @@ std::expected<void, FPresentationError> FRadianceCascades::Render(const FGlobalI
 		if (!bClear)
 		{
 			Dispatch.IndirectArguments = Counters;
-			Dispatch.IndirectOffset = Level * 4 * sizeof(std::uint32_t);
+			Dispatch.IndirectOffset = std::size_t{Level} * 4 * sizeof(std::uint32_t);
 		}
 
 		return Device.Dispatch(Dispatch);

@@ -152,6 +152,7 @@ std::vector<std::filesystem::path> FVirtualFileSystem::FindFiles(const std::stri
 	const auto [First, Last] = std::ranges::unique(Found);
 	Found.erase(First, Last);
 	std::vector<std::filesystem::path> Paths;
+	Paths.reserve(Found.size());
 	for (const std::string& Relative : Found)
 	{
 		Paths.push_back(Root / std::filesystem::path(std::u8string(Relative.begin(), Relative.end())));
@@ -173,6 +174,7 @@ std::size_t FVirtualFileSystem::GetMountCount() const noexcept
 std::vector<std::string> FVirtualFileSystem::DescribeMounts() const
 {
 	std::vector<std::string> Descriptions;
+	Descriptions.reserve(Mounts.size());
 	for (const FMount& Mount : Mounts)
 	{
 		Descriptions.push_back(Mount.Package ? std::format("package {}{}", Mount.Package->GetName(), Mount.Package->IsTrusted() ? ", signed" : "") : std::format("directory {}", Mount.Directory.generic_string()));

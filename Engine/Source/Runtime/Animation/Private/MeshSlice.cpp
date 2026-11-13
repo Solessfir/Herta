@@ -398,9 +398,10 @@ std::expected<FMeshSliceResult, FAnimationError> SplitSkinnedMesh(const FSkinned
 				if (Other != Loop && Area(Other) > Area(Loop) && Inside(Polygons[Other], Polygons[Loop].front()))
 				{
 					++Depth[Loop];
-					if (!Container[Loop] || Area(Other) < Area(*Container[Loop]))
+					std::optional<std::size_t>& Smallest = Container[Loop];
+					if (!Smallest || Area(Other) < Area(*Smallest))
 					{
-						Container[Loop] = Other;
+						Smallest = Other;
 					}
 				}
 			}

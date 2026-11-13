@@ -110,7 +110,7 @@ std::expected<std::filesystem::path, FAssetError> DeleteAsset(const std::filesys
 
 	// One folder per deletion, so deleting the same path twice keeps both.
 	const auto Stamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-	const std::filesystem::path Folder = TrashRoot / std::format("{}", Stamp);
+	std::filesystem::path Folder = TrashRoot / std::format("{}", Stamp);
 	std::vector<std::pair<std::filesystem::path, std::filesystem::path>> Moves;
 	for (const std::filesystem::path& File : *Files)
 	{

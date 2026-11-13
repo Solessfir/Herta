@@ -1190,7 +1190,7 @@ TEST_CASE("Characters of opposing attitudes fight each other, a neutral one only
 	    Agent(10, "Squad 4", {26.f, 0.f, -18.f}, 0.f, EAiAttitude::Hostile),
 	};
 
-	const auto Navigation = BuildLevelNavigation(Level, {}, [](const FAssetId&)
+	auto Navigation = BuildLevelNavigation(Level, {}, [](const FAssetId&)
 	{
 		return std::optional<FNavigationBox>{};
 	});
@@ -1277,7 +1277,7 @@ TEST_CASE("AI agents walk the navigation, chase and knock down the player, flee 
 	    FLevelEntity{.Id = FObjectId{1, 4}, .Name = "Guard", .Transform = {.Translation = FWorldPosition{{0., 0., 8.}}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{7, 7}}, .Character = FCharacterComponent{}, .AiAgent = FAiAgentComponent{.StateTree = GuardTree, .SightRange = 20.f}},
 	};
 
-	const auto Navigation = BuildLevelNavigation(Level, {}, [](const FAssetId&)
+	auto Navigation = BuildLevelNavigation(Level, {}, [](const FAssetId&)
 	{
 		return std::optional<FNavigationBox>{};
 	});
@@ -1686,7 +1686,7 @@ TEST_CASE("Near a guard the player faces it and backpedals, steps into swings, b
 	    FLevelEntity{.Id = FObjectId{1, 5}, .Name = "Wall", .Transform = {.Translation = FWorldPosition{{-14., 1., 0.}}, .Scale = {1.f, 2.f, 6.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
 	};
 
-	const auto Navigation = BuildLevelNavigation(Level, {}, [](const FAssetId&)
+	auto Navigation = BuildLevelNavigation(Level, {}, [](const FAssetId&)
 	{
 		return std::optional<FNavigationBox>{};
 	});

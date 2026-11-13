@@ -642,7 +642,7 @@ void FAiWorld::Perceive(FAgent& Agent, const IAiEnvironment& Environment)
 	++Stats.Perceptions;
 	const FAiPerception& Perception = Agent.Desc.Perception;
 	const IAiBody& Body = *Agent.Desc.Body;
-	bool bSees = false;
+	const FAiTarget* Seen = nullptr;
 	float Nearest = 1.e9f;
 	const FVector3 Eye = Body.GetEyePosition();
 	for (const FAiTarget& Target : Targets)
@@ -658,12 +658,12 @@ void FAiWorld::Perceive(FAgent& Agent, const IAiEnvironment& Environment)
 		if (Distance < Nearest && (Distance <= Perception.TouchRange || bInView) && Environment.HasLineOfSight(Eye, Target.Head))
 		{
 			Nearest = Distance;
-			bSees = true;
+			Seen = &Target;
 			Agent.Memory.Enemy = Target.Key;
 		}
 	}
 
-	if (bSees)
+	if (Seen)
 	{
 		if (!Agent.Memory.bSeesTarget)
 		{
@@ -671,7 +671,7 @@ void FAiWorld::Perceive(FAgent& Agent, const IAiEnvironment& Environment)
 			++Stats.Spotted;
 		}
 
-		Agent.Memory.LastSeen = FindTarget(*Agent.Memory.Enemy)->Foot;
+		Agent.Memory.LastSeen = Seen->Foot;
 		Agent.Memory.SecondsSinceSeen = 0.f;
 	}
 	else if (Agent.Memory.bSeesTarget)
@@ -679,7 +679,7 @@ void FAiWorld::Perceive(FAgent& Agent, const IAiEnvironment& Environment)
 		Agent.Execution.PostEvent("Lost");
 	}
 
-	Agent.Memory.bSeesTarget = bSees;
+	Agent.Memory.bSeesTarget = Seen != nullptr;
 }
 
 void FAiWorld::Step(const float Seconds, const IAiEnvironment& Environment)

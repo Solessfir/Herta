@@ -15,6 +15,7 @@ void FEditorFramework::FImplementation::LoadGameModules(const FLoadedProject& Pr
 	GameModules.reset();
 	GameModuleBuilds.clear();
 	std::vector<std::string> Names;
+	Names.reserve(Project.Descriptor.Modules.size());
 	for (const FProjectModule& Module : Project.Descriptor.Modules)
 	{
 		Names.push_back(Module.Name);

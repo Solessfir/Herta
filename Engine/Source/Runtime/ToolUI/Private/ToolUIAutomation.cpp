@@ -154,9 +154,17 @@ bool QueueToolUIKey(const std::string_view Chord)
 		{
 			Modifiers.push_back(ImGuiMod_Alt);
 		}
-		else if (Key != ImGuiKey_None || (Key = FindKey(Name)) == ImGuiKey_None)
+		else if (Key != ImGuiKey_None)
 		{
 			return false;
+		}
+		else
+		{
+			Key = FindKey(Name);
+			if (Key == ImGuiKey_None)
+			{
+				return false;
+			}
 		}
 	}
 

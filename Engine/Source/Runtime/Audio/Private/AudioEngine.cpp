@@ -331,8 +331,8 @@ std::expected<void, FAudioError> FAudioEngine::AddSoundStream(const FAssetId& Id
 	auto Mixer = std::make_shared<FMixerSound>();
 	Mixer->Playback = Stream.Playback;
 	Mixer->Bus = *Bus;
-	Mixer->Stream = Stream;
-	Mixer->Wave = {.Frames = Stream.Frames, .Channels = Stream.Channels, .SampleRate = Stream.SampleRate, .Stream = &*Mixer->Stream};
+	const FCookedSoundStream& Owned = Mixer->Stream.emplace(Stream);
+	Mixer->Wave = {.Frames = Stream.Frames, .Channels = Stream.Channels, .SampleRate = Stream.SampleRate, .Stream = &Owned};
 	Mixer->Graph = {.Nodes = {{.Type = ESoundNodeType::WavePlayer, .Waves = {Id}, .bLoop = Stream.bLoop}, {.Type = ESoundNodeType::Output, .Inputs = {0}}}};
 	Mixer->NodeWaves = {{&Mixer->Wave}, {}};
 
@@ -447,7 +447,7 @@ void FAudioEngine::Submit(const FAudioCommand& Command)
 			}
 		}
 
-		const double Seconds = Sound->Sound && Sound->Sound->Channels > 0 && Sound->Sound->SampleRate > 0 && !Sound->Sound->bLoop ? static_cast<double>(Sound->Sound->Samples.size() / Sound->Sound->Channels) / Sound->Sound->SampleRate / std::clamp(Play->Pitch, 0.01f, 16.f) : 0.;
+		const double Seconds = Sound->Sound && Sound->Sound->Channels > 0 && Sound->Sound->SampleRate > 0 && !Sound->Sound->bLoop ? static_cast<double>(Sound->Wave.Frames) / Sound->Sound->SampleRate / std::clamp(Play->Pitch, 0.01f, 16.f) : 0.;
 		State.RecentPlays.push_front({.Record = {.Sound = Play->Sound, .Voice = Voice, .Bus = Sound->Bus < State.Buses.size() ? State.Buses[Sound->Bus].Name : std::string(), .Volume = Play->Volume, .Pitch = Play->Pitch, .bSpatial = Play->bSpatial, .Position = Play->Position}, .PlayedAt = State.Clock, .Seconds = Seconds});
 		if (State.RecentPlays.size() > MaximumAudioPlayRecords)
 		{

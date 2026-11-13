@@ -444,7 +444,7 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 				return UsageError("animation.compile <graph.hanimgraph>");
 			}
 
-			const auto Bytes = ReadWholeFile(Utf8ToPath(Arguments[0]), 64 * 1024 * 1024);
+			const auto Bytes = ReadWholeFile(Utf8ToPath(Arguments[0]), std::uint64_t{64} * 1024 * 1024);
 			if (!Bytes || !*Bytes)
 			{
 				return ExecutionError(Bytes ? FAssetError{std::format("{} does not exist", Arguments[0])} : Bytes.error());
@@ -486,7 +486,7 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 			}
 
 			const std::filesystem::path Path = Utf8ToPath(Arguments[0]);
-			const auto Bytes = ReadWholeFile(Path, 64 * 1024 * 1024);
+			const auto Bytes = ReadWholeFile(Path, std::uint64_t{64} * 1024 * 1024);
 			if (!Bytes || !*Bytes)
 			{
 				return ExecutionError(Bytes ? FAssetError{std::format("{} does not exist", Arguments[0])} : Bytes.error());
@@ -522,7 +522,7 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 			{
 				for (std::filesystem::path Root = std::filesystem::absolute(Path).parent_path(); !Root.empty(); Root = Root.parent_path())
 				{
-					if (auto Text = ReadWholeFile(Root / Utf8ToPath(Subgraph), 64 * 1024 * 1024); Text && *Text)
+					if (auto Text = ReadWholeFile(Root / Utf8ToPath(Subgraph), std::uint64_t{64} * 1024 * 1024); Text && *Text)
 					{
 						auto Loaded = DeserializeGraph(std::string_view(reinterpret_cast<const char*>((*Text)->data()), (*Text)->size()), GetAudioGraphSchema());
 						return Loaded ? std::optional(std::move(*Loaded)) : std::nullopt;
@@ -571,7 +571,7 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 				return UsageError("statetree.compile <tree.hstatetree>");
 			}
 
-			const auto Bytes = ReadWholeFile(Utf8ToPath(Arguments[0]), 64 * 1024 * 1024);
+			const auto Bytes = ReadWholeFile(Utf8ToPath(Arguments[0]), std::uint64_t{64} * 1024 * 1024);
 			if (!Bytes || !*Bytes)
 			{
 				return ExecutionError(Bytes ? FAssetError{std::format("{} does not exist", Arguments[0])} : Bytes.error());
@@ -682,7 +682,7 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 				return UsageError("vfx.compile <graph.hvfxgraph>");
 			}
 
-			const auto Bytes = ReadWholeFile(Utf8ToPath(Arguments[0]), 64 * 1024 * 1024);
+			const auto Bytes = ReadWholeFile(Utf8ToPath(Arguments[0]), std::uint64_t{64} * 1024 * 1024);
 			if (!Bytes || !*Bytes)
 			{
 				return ExecutionError(Bytes ? FAssetError{std::format("{} does not exist", Arguments[0])} : Bytes.error());

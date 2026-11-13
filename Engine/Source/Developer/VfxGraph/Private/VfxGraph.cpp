@@ -11,7 +11,7 @@ namespace Herta
 {
 namespace
 {
-enum EVfxPin : std::uint32_t
+enum EVfxPin : std::uint8_t
 {
 	EmitterPin = 1,
 	SpawnPin,

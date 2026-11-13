@@ -13,7 +13,7 @@ namespace Herta
 {
 namespace
 {
-enum ELocomotionParameter : std::size_t
+enum ELocomotionParameter : std::uint8_t
 {
 	Speed,
 	Grounded,
@@ -41,7 +41,7 @@ enum ELocomotionParameter : std::size_t
 	HeavyLanding,
 };
 
-enum ELocomotionState : std::size_t
+enum ELocomotionState : std::uint8_t
 {
 	Locomotion,
 	Crouching,
@@ -358,12 +358,13 @@ FPlayerCharacter::FPlayerCharacter(std::shared_ptr<const FCookedModel> InModel, 
 
 std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::Create(std::shared_ptr<const FCookedModel> Model, IGraphicsDevice* const Device)
 {
-	if (!Model || !Model->Skeleton || Model->Influences.size() != Model->Vertices.size())
+	const FCookedModel* const Cooked = Model.get();
+	if (!Cooked || !Cooked->Skeleton || Cooked->Influences.size() != Cooked->Vertices.size())
 	{
 		return std::unexpected(FGameError{"The player character must be a skinned model"});
 	}
 
-	auto Library = FAnimationLibrary::Create(*Model->Skeleton, Model->Clips);
+	auto Library = FAnimationLibrary::Create(*Cooked->Skeleton, Cooked->Clips);
 	if (!Library)
 	{
 		return std::unexpected(FGameError{std::format("The player character cannot animate: {}", Library.error().Message)});
@@ -371,7 +372,7 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 
 	// A model cooked with an animation graph runs its machine; others use the built-in locomotion. The session drives parameters by name, so a
 	// graph that lacks one simply ignores it.
-	auto Machine = FAnimationStateMachine::Create(Model->StateMachine ? *Model->StateMachine : MakeDefaultPlayerStateMachine(), **Library);
+	auto Machine = FAnimationStateMachine::Create(Cooked->StateMachine ? *Cooked->StateMachine : MakeDefaultPlayerStateMachine(), **Library);
 	if (!Machine)
 	{
 		return std::unexpected(FGameError{std::format("The player character's state machine cannot play: {}", Machine.error().Message)});
@@ -573,7 +574,10 @@ std::expected<void, FGameError> FPlayerCharacter::EvaluatePose()
 void FPlayerCharacter::ApplySlideSwing()
 {
 	const FArmReach& Arm = Arms[1];
-	const bool bReady = SlideSwingState && Machine.GetActiveState() == *SlideSwingState && RagdollWeight == 0.f && Arm.Shoulder && Arm.Elbow && Arm.Wrist && GripJoints[1] && GripJoints[2] && GripJoints[3];
+	const std::optional<std::size_t>& MiddleBase = GripJoints[1];
+	const std::optional<std::size_t>& IndexBase = GripJoints[2];
+	const std::optional<std::size_t>& PinkyBase = GripJoints[3];
+	const bool bReady = SlideSwingState && Machine.GetActiveState() == *SlideSwingState && RagdollWeight == 0.f && Arm.Shoulder && Arm.Elbow && Arm.Wrist && MiddleBase && IndexBase && PinkyBase;
 	if (!bReady || (Remaining && !Carries(*Arm.Wrist)))
 	{
 		return;
@@ -618,9 +622,9 @@ void FPlayerCharacter::ApplySlideSwing()
 	const FVector3 Lead = Sample(BladePath, Along + 0.03f) - Sample(BladePath, Along - 0.03f);
 
 	// The blade points along the path and its edge, which runs along the fingers, leads the cut.
-	const FVector3 Grip = (At(*GripJoints[2]) - At(*GripJoints[3])).Normalized();
+	const FVector3 Grip = (At(*IndexBase) - At(*PinkyBase)).Normalized();
 	const FQuaternion Aim = FQuaternion::Between(Grip, Blade);
-	const FVector3 Fingers = Aim.RotateVector(At(*GripJoints[1]) - At(*Arm.Wrist));
+	const FVector3 Fingers = Aim.RotateVector(At(*MiddleBase) - At(*Arm.Wrist));
 	const FVector3 EdgeFrom = Fingers - Blade * Fingers.Dot(Blade);
 	const FVector3 EdgeTo = Lead - Blade * Lead.Dot(Blade);
 	const FQuaternion Full = (EdgeFrom.LengthSquared() > 1.e-6f && EdgeTo.LengthSquared() > 1.e-6f ? FQuaternion::Between(EdgeFrom.Normalized(), EdgeTo.Normalized()) : FQuaternion::Identity()) * Aim;
@@ -678,7 +682,7 @@ void FPlayerCharacter::UpdateFootPlacement(const FMatrix4& BodyModel, const floa
 	float Lowest = 0.f;
 	for (FFootPlacement& Foot : Feet)
 	{
-		const FVector3 Ankle = BodyModel.TransformPosition(Joints[*Foot.Ankle].TransformPosition({}));
+		const FVector3 Ankle = BodyModel.TransformPosition(Joints[*Foot.Ankle].TransformPosition({})); // NOLINT(bugprone-unchecked-optional-access): bLegs checked every foot's joints
 		const std::optional<FFootGround> Ground = Cast(Ankle, Origin + SearchHeight, Origin - SearchHeight);
 		// Feet are animated for flat ground at the body's origin, so a foot moves by how far the ground under it differs from that.
 		const float Height = Ground ? std::clamp(Ground->Height - Origin, -MaximumOffset, MaximumOffset) : 0.f;
@@ -816,16 +820,19 @@ void FPlayerCharacter::ApplyWallReach()
 	std::array<FLimbIkTarget, 2> Limbs{};
 	std::size_t Count = 0;
 	const FArmReach& Free = Arms[0];
-	if (Free.Weight > 0.f)
+	if (Free.Weight > 0.f && Free.Shoulder && Free.Elbow && Free.Wrist)
 	{
 		// The elbow drops down and back, as an arm does reaching for a wall, whatever small bend the animation has. The wrist stays a hand's
 		// thickness off the surface.
 		FLimbIkTarget Limb{.Root = *Free.Shoulder, .Middle = *Free.Elbow, .Tip = *Free.Wrist, .TipTarget = Free.Point + Free.Normal * 0.075f, .Weight = Free.Weight, .BendFallback = FVector3{0.f, -0.8f, -0.6f}, .bForceBend = true};
-		if (LeftFingers[0] && LeftFingers[1] && LeftFingers[2])
+		const std::optional<std::size_t>& MiddleBase = LeftFingers[0];
+		const std::optional<std::size_t>& IndexBase = LeftFingers[1];
+		const std::optional<std::size_t>& PinkyBase = LeftFingers[2];
+		if (MiddleBase && IndexBase && PinkyBase)
 		{
 			// Fingers crossed with index-to-little gives the palm of a left hand. The palm goes flat on the wall, fingers up and forward along it.
-			const FVector3 Fingers = (At(*LeftFingers[0]) - At(*Free.Wrist)).Normalized();
-			const FVector3 Across = At(*LeftFingers[1]) - At(*LeftFingers[2]);
+			const FVector3 Fingers = (At(*MiddleBase) - At(*Free.Wrist)).Normalized();
+			const FVector3 Across = At(*IndexBase) - At(*PinkyBase);
 			const FQuaternion Flat = FQuaternion::Between(Fingers.Cross(Across).Normalized(), -Free.Normal);
 			const FVector3 Reach = FVector3{0.f, 0.7f, 0.7f} - Free.Normal * FVector3{0.f, 0.7f, 0.7f}.Dot(Free.Normal);
 			const FVector3 Turned = Flat.RotateVector(Fingers);
@@ -838,7 +845,7 @@ void FPlayerCharacter::ApplyWallReach()
 	}
 
 	const FArmReach& Sword = Arms[1];
-	if (Sword.Weight > 0.f)
+	if (Sword.Weight > 0.f && Sword.Shoulder && Sword.Elbow && Sword.Wrist)
 	{
 		// The sword hand stays where it is unless the wall is in the way, then moves out just far enough.
 		constexpr float Margin = 0.12f;
@@ -852,7 +859,7 @@ void FPlayerCharacter::ApplyWallReach()
 
 void FPlayerCharacter::ApplyFootPlacement()
 {
-	if (FootWeight <= 0.f || RagdollWeight > 0.f || !PelvisJoint || !Feet[0].Ankle || !Feet[1].Ankle)
+	if (FootWeight <= 0.f || RagdollWeight > 0.f || !PelvisJoint)
 	{
 		return;
 	}
@@ -862,6 +869,11 @@ void FPlayerCharacter::ApplyFootPlacement()
 	for (std::size_t Index = 0; Index < Feet.size(); ++Index)
 	{
 		const FFootPlacement& Foot = Feet[Index];
+		if (!Foot.Hip || !Foot.Knee || !Foot.Ankle)
+		{
+			return;
+		}
+
 		// A lifted foot follows its animation; only a planted one lies flat on the ground.
 		const float Lift = Joints[*Foot.Ankle].TransformPosition({}).Y - Foot.RestHeight;
 		const float Planted = 1.f - std::clamp((Lift - 0.03f) / 0.17f, 0.f, 1.f);
@@ -953,7 +965,7 @@ FRagdollFit FitRagdoll(const FAnimationLibrary& Library, const std::span<const F
 		const auto KeepsAlong = [&]
 		{
 			const auto Parents = Library.GetJointParents();
-			for (std::int16_t Along = *End < Parents.size() ? Parents[*End] : -1; Along >= 0; Along = Parents[static_cast<std::size_t>(Along)])
+			for (std::int16_t Along = *End < Parents.size() ? Parents[*End] : std::int16_t{-1}; Along >= 0; Along = Parents[static_cast<std::size_t>(Along)])
 			{
 				if (Keep(static_cast<std::size_t>(Along)))
 				{
@@ -1014,7 +1026,7 @@ FCookedModel MakeCutModel(const FCookedModel& Source, const FSkinnedMeshPiece& P
 
 bool IsSliver(const FSkinnedMeshPiece& Piece)
 {
-	if (Piece.Indices.size() < 40 * 3)
+	if (Piece.Indices.size() < std::size_t{40} * 3)
 	{
 		return true;
 	}
@@ -1271,7 +1283,7 @@ std::expected<std::vector<FSkinnedMeshPiece>, FGameError> FPlayerCharacter::Deta
 		return std::vector<FSkinnedMeshPiece>{};
 	}
 
-	std::vector<FSkinnedMeshPiece> Parts = SplitJoinedParts(*Remaining, *Library, FindCarriedJoints(Whole, Library->GetJointCount()), *PelvisJoint);
+	std::vector<FSkinnedMeshPiece> Parts = SplitJoinedParts(*Remaining, *Library, FindCarriedJoints(Whole, Library->GetJointCount()), PelvisJoint);
 	if (Parts.size() < 2)
 	{
 		return std::vector<FSkinnedMeshPiece>{};

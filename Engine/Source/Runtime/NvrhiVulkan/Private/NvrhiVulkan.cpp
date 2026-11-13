@@ -166,8 +166,8 @@ constexpr VkSurfaceFormatKHR Hdr10SurfaceFormat{.format = VK_FORMAT_A2B10G10R10_
 		std::byte* const Destination = Pixels.data() + static_cast<std::size_t>(Row) * Extent.Width * 4;
 		for (std::uint32_t Column = 0; Column < Extent.Width; ++Column)
 		{
-			std::byte* const Out = Destination + Column * 4;
-			const std::byte* const In = Source + Column * 4;
+			std::byte* const Out = Destination + std::size_t{Column} * 4;
+			const std::byte* const In = Source + std::size_t{Column} * 4;
 			if (Format == VK_FORMAT_A2B10G10R10_UNORM_PACK32)
 			{
 				std::uint32_t Packed = 0;

@@ -408,15 +408,17 @@ void RenderValueWithUnit(const ImVec2 Minimum, const ImVec2 Maximum, const std::
 {
 	const std::size_t LastDigit = Text.find_last_of("0123456789");
 	const std::size_t Split = LastDigit == std::string_view::npos ? Text.size() : LastDigit + 1;
+	const std::string_view Number = Text.substr(0, Split);
+	const std::string_view Unit = Text.substr(Split);
 	const ImVec2 Size = ImGui::CalcTextSize(Text.data(), Text.data() + Text.size());
 	const ImVec2 Origin{std::max(Minimum.x, std::floor((Minimum.x + Maximum.x - Size.x) * 0.5f)), std::floor((Minimum.y + Maximum.y - Size.y) * 0.5f)};
 	const ImVec4 Clip{Minimum.x, Minimum.y, Maximum.x, Maximum.y};
 	ImDrawList* const Draw = ImGui::GetWindowDrawList();
-	Draw->AddText(nullptr, 0.f, Origin, ImGui::GetColorU32(ImGuiCol_Text), Text.data(), Text.data() + Split, 0.f, &Clip);
-	if (Split < Text.size())
+	Draw->AddText(nullptr, 0.f, Origin, ImGui::GetColorU32(ImGuiCol_Text), Number.data(), Number.data() + Number.size(), 0.f, &Clip);
+	if (!Unit.empty())
 	{
-		const float NumberWidth = ImGui::CalcTextSize(Text.data(), Text.data() + Split).x;
-		Draw->AddText(nullptr, 0.f, {Origin.x + NumberWidth, Origin.y}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Text.data() + Split, Text.data() + Text.size(), 0.f, &Clip);
+		const float NumberWidth = ImGui::CalcTextSize(Number.data(), Number.data() + Number.size()).x;
+		Draw->AddText(nullptr, 0.f, {Origin.x + NumberWidth, Origin.y}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Unit.data(), Unit.data() + Unit.size(), 0.f, &Clip);
 	}
 }
 }

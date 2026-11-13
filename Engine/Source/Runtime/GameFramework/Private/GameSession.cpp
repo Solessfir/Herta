@@ -293,7 +293,7 @@ struct FPlayerSlot
 	FGameInput Input{};
 	std::uint32_t Attacks = 0;
 	// Rebuilt on every start, because the physics world and its character are.
-	std::optional<FCharacterMover> Mover{};
+	std::unique_ptr<FCharacterMover> Mover{};
 	std::optional<FNavigationAgentId> PlayerAgent{};
 	float SprintNoiseSeconds = 0.f;
 	// A strike that knocks the player down waits for the step to finish, and the player gets back up on their own after a while.
@@ -400,7 +400,7 @@ struct FGameSession::FImplementation : FPlayerSlot
 	[[nodiscard]] std::expected<void, FGameError> UpdateScaled(float DeltaSeconds, std::span<const FGameInput> Inputs);
 	[[nodiscard]] std::expected<void, FPhysicsError> StepCharacters(FPhysicsWorld& World, float StepSeconds);
 	// Adds a piece to the world, pushing out the oldest of its character's pieces past the character's budget.
-	[[nodiscard]] std::expected<void, FGameError> AddPiece(std::size_t Character, std::shared_ptr<const FCookedModel> Model, std::shared_ptr<const FAnimationLibrary> Library, std::span<const FMatrix4> Pose, FSkinnedMeshPiece Mesh, const FMatrix4& ModelToWorld, const FVector3& Velocity);
+	[[nodiscard]] std::expected<void, FGameError> AddPiece(std::size_t Character, const std::shared_ptr<const FCookedModel>& Model, const std::shared_ptr<const FAnimationLibrary>& Library, std::span<const FMatrix4> Pose, FSkinnedMeshPiece Mesh, const FMatrix4& ModelToWorld, const FVector3& Velocity);
 	// Drops what is left of a character as its ragdoll in its current pose, replacing the one it had, and removes its capsule.
 	[[nodiscard]] std::expected<void, FGameError> RagdollCharacter(FCharacterActor& Actor, const FVector3& Velocity);
 	[[nodiscard]] std::expected<bool, FGameError> CutCharacter(std::size_t Character, const std::function<std::expected<std::optional<FSkinnedMeshPiece>, FGameError>(FPlayerCharacter&)>& Cut, const FVector3& Away);
@@ -860,17 +860,18 @@ std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(co
 
 	for (std::size_t Index = 0; Index < Count; ++Index)
 	{
-		if (Session.Entities[Index].Player && Session.Entities[Index].Character)
+		const FLevelEntity& Entity = Session.Entities[Index];
+		if (Entity.Player && Entity.Character)
 		{
 			if (Session.PlayerEntity)
 			{
-				Session.Warnings.push_back(std::format("{} is a second Player; the player plays {}", Session.Entities[Index].Name, Session.Entities[*Session.PlayerEntity].Name));
+				Session.Warnings.push_back(std::format("{} is a second Player; the player plays {}", Entity.Name, Session.Entities[*Session.PlayerEntity].Name));
 				continue;
 			}
 
 			Session.PlayerEntity = Index;
-			Session.PlayerKit = *Session.Entities[Index].Character;
-			Session.bThirdPerson = Session.Entities[Index].Player->bThirdPerson;
+			Session.PlayerKit = *Entity.Character;
+			Session.bThirdPerson = Entity.Player->bThirdPerson;
 			Session.Players.front().bThirdPerson = Session.bThirdPerson;
 			Session.PlayerWeapon = Session.PlayerKit.Weapon.IsValid() ? Session.Assets.FindMesh(Session.PlayerKit.Weapon) : nullptr;
 		}
@@ -907,19 +908,15 @@ std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(co
 	for (std::size_t Index = 0; Index < Count; ++Index)
 	{
 		const FLevelEntity& Entity = Session.Entities[Index];
-		if (Index == Session.PlayerEntity)
+		if (Index == Session.PlayerEntity || !Entity.Character)
 		{
 			continue;
 		}
 
-		std::shared_ptr<const FCookedModel> Model = Entity.Character && Entity.Mesh ? Assets.FindSkinnedModel(Entity.Mesh->Asset) : nullptr;
+		std::shared_ptr<const FCookedModel> Model = Entity.Mesh ? Assets.FindSkinnedModel(Entity.Mesh->Asset) : nullptr;
 		if (!Model)
 		{
-			if (Entity.Character)
-			{
-				Session.Warnings.push_back(std::format("{} is a Character without a skinned model; it stays a static mesh", Entity.Name));
-			}
-
+			Session.Warnings.push_back(std::format("{} is a Character without a skinned model; it stays a static mesh", Entity.Name));
 			continue;
 		}
 
@@ -1089,7 +1086,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::StartPlayer()
 		return std::unexpected(FGameError{std::format("Cannot create the player: {}", Created.error().Message)});
 	}
 
-	Mover = std::move(*Created);
+	Mover = std::make_unique<FCharacterMover>(std::move(*Created));
 
 	// The new physics world has none of the old one's ragdoll bodies.
 	Ragdoll.reset();
@@ -1101,7 +1098,8 @@ FVector3 FGameSession::FImplementation::GetPlayerSpawn() const
 {
 	// Later players line up beside the first, alternating sides, so nobody spawns inside anyone else.
 	constexpr float Spacing = 0.8f;
-	const float Side = static_cast<float>((ActivePlayer + 1) / 2) * (ActivePlayer % 2 == 1 ? 1.f : -1.f);
+	const std::size_t Rank = (ActivePlayer + 1) / 2;
+	const float Side = static_cast<float>(Rank) * (ActivePlayer % 2 == 1 ? 1.f : -1.f);
 	return SpawnPosition + Movement::Right(SpawnYaw) * (Side * Spacing);
 }
 
@@ -1163,7 +1161,8 @@ std::expected<std::size_t, FGameError> FGameSession::AddPlayer()
 
 	const std::size_t Added = Session.Players.size();
 	Session.Players.emplace_back().Body = std::move(*Body);
-	Session.Players.back().bThirdPerson = !Session.PlayerEntity || Session.Entities[*Session.PlayerEntity].Player->bThirdPerson;
+	const FLevelEntity* const PlayerEntity = Session.PlayerEntity ? &Session.Entities[*Session.PlayerEntity] : nullptr;
+	Session.Players.back().bThirdPerson = !PlayerEntity || !PlayerEntity->Player || PlayerEntity->Player->bThirdPerson;
 	Session.Activate(Added);
 	auto Started = Session.StartPlayer();
 	if (Started)
@@ -1787,6 +1786,11 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StartRagdoll()
 std::expected<void, FPhysicsError> FGameSession::FImplementation::ReadRagdoll(const FPhysicsWorld& World)
 {
 	RagdollParts.clear();
+	if (!Ragdoll)
+	{
+		return {};
+	}
+
 	for (const FPhysicsBodyId Part : Ragdoll->Parts)
 	{
 		auto Transform = World.GetBodyTransform(Part);
@@ -1948,7 +1952,10 @@ void FGameSession::FImplementation::UpdateObjective(const float DeltaSeconds)
 		Objective.State = EGameObjectiveState::Running;
 		Objective.ElapsedSeconds = 0.;
 		Events.push_back("Run started");
-		Audio.PlayFlat(Entities[StartZone->Entity].Trigger->Sound, {{.Name = "Finished", .Value = 0.f}});
+		if (const auto& Trigger = Entities[StartZone->Entity].Trigger)
+		{
+			Audio.PlayFlat(Trigger->Sound, {{.Name = "Finished", .Value = 0.f}});
+		}
 	}
 	else if (Objective.State != EGameObjectiveState::Ready && bInStart)
 	{
@@ -1961,7 +1968,10 @@ void FGameSession::FImplementation::UpdateObjective(const float DeltaSeconds)
 		const bool bBest = !Objective.BestSeconds || Objective.ElapsedSeconds < *Objective.BestSeconds;
 		Objective.BestSeconds = bBest ? Objective.ElapsedSeconds : Objective.BestSeconds;
 		Events.push_back(std::format("Course finished in {:.2f} s{}", Objective.ElapsedSeconds, bBest ? ", a new best" : ""));
-		Audio.PlayFlat(Entities[FinishZone->Entity].Trigger->Sound, {{.Name = "Finished", .Value = 1.f}});
+		if (const auto& Trigger = Entities[FinishZone->Entity].Trigger)
+		{
+			Audio.PlayFlat(Trigger->Sound, {{.Name = "Finished", .Value = 1.f}});
+		}
 	}
 }
 
@@ -2107,7 +2117,12 @@ std::expected<void, FGameError> FGameSession::FImplementation::BeginPlayerUpdate
 	}
 
 	constexpr float KnockdownGetUpSeconds = 2.5f;
-	if (KnockdownSeconds && (*KnockdownSeconds += DeltaSeconds) >= KnockdownGetUpSeconds)
+	if (KnockdownSeconds)
+	{
+		*KnockdownSeconds += DeltaSeconds;
+	}
+
+	if (KnockdownSeconds && *KnockdownSeconds >= KnockdownGetUpSeconds)
 	{
 		KnockdownSeconds.reset();
 		if (Combat.IsDead())
@@ -3022,7 +3037,8 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 		return std::unexpected(Severed.error());
 	}
 
-	if (!*Severed)
+	std::optional<FSkinnedMeshPiece>& Piece = *Severed;
+	if (!Piece)
 	{
 		return false;
 	}
@@ -3048,7 +3064,7 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 
 	FPlayerCharacter& Victim = *Actor.Body;
 	const FMatrix4 Model = Actor.Model;
-	if (auto Added = AddPiece(Character, Victim.GetCookedModel(), Victim.GetLibrary(), Victim.GetModelTransforms(), std::move(**Severed), Model, Away * 1.5f + FVector3::Up() * 0.5f); !Added)
+	if (auto Added = AddPiece(Character, Victim.GetCookedModel(), Victim.GetLibrary(), Victim.GetModelTransforms(), std::move(*Piece), Model, Away * 1.5f + FVector3::Up() * 0.5f); !Added)
 	{
 		return std::unexpected(Added.error());
 	}
@@ -3213,7 +3229,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::RagdollCharacter(
 	return {};
 }
 
-std::expected<void, FGameError> FGameSession::FImplementation::AddPiece(const std::size_t Character, std::shared_ptr<const FCookedModel> Model, std::shared_ptr<const FAnimationLibrary> Library, const std::span<const FMatrix4> Pose, FSkinnedMeshPiece Mesh, const FMatrix4& ModelToWorld, const FVector3& Velocity)
+std::expected<void, FGameError> FGameSession::FImplementation::AddPiece(const std::size_t Character, const std::shared_ptr<const FCookedModel>& Model, const std::shared_ptr<const FAnimationLibrary>& Library, const std::span<const FMatrix4> Pose, FSkinnedMeshPiece Mesh, const FMatrix4& ModelToWorld, const FVector3& Velocity)
 {
 	FPhysicsWorld* const World = Simulation.GetPhysicsWorld();
 	if (!World || Characters[Character].Settings.MaximumPieces < 1.f)
@@ -4154,9 +4170,9 @@ void FGameSession::FImplementation::UnloadRegion(const std::size_t Region)
 		return;
 	}
 
-	if (Found->Group)
+	if (const auto& Group = Found->Group)
 	{
-		(void)Simulation.RemoveStaticBodies(*Found->Group);
+		(void)Simulation.RemoveStaticBodies(*Group);
 	}
 
 	if (Found->Loaded.Release)

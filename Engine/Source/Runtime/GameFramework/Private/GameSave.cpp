@@ -16,7 +16,7 @@ namespace Herta
 namespace
 {
 constexpr std::string_view Magic = "HertaSave";
-constexpr std::size_t MaximumSaveBytes = 16 * 1024 * 1024;
+constexpr std::size_t MaximumSaveBytes = std::size_t{16} * 1024 * 1024;
 constexpr std::size_t MaximumListEntries = 65536;
 
 [[nodiscard]] std::unexpected<FGameSaveError> Fail(std::string Message)
@@ -171,7 +171,7 @@ std::expected<FGameSave, FGameSaveError> ParseGameSave(const std::string_view Te
 		{
 			const std::size_t Space = Value.find(' ');
 			const auto Object = FObjectId::Parse(Value.substr(0, Space));
-			const auto Bits = Space == std::string_view::npos ? std::nullopt : DecodeBits(Value.substr(Space + 1));
+			auto Bits = Space == std::string_view::npos ? std::nullopt : DecodeBits(Value.substr(Space + 1));
 			if (!Object || !Bits || Save.Destructibles.size() >= MaximumListEntries)
 			{
 				return Fail("A saved destructible is unreadable");

@@ -40,7 +40,7 @@ std::optional<std::string> Exchange(FIpcConnection& Connection, const std::strin
 		REQUIRE(Reply);
 		if (*Reply)
 		{
-			return **Reply;
+			return *Reply;
 		}
 	}
 

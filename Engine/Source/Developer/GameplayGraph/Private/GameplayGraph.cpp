@@ -17,7 +17,7 @@ namespace Herta
 {
 namespace
 {
-enum EGameplayPin : std::uint32_t
+enum EGameplayPin : std::uint8_t
 {
 	ExecPin,
 	FloatPin,

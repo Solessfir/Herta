@@ -1978,6 +1978,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 
 	Output += Bookmarks.empty() ? "],\n  \"regions\": [" : "\n  ],\n  \"regions\": [";
 	std::vector<const FLevelRegion*> Regions;
+	Regions.reserve(Document.Regions.size());
 	for (const FLevelRegion& Region : Document.Regions)
 	{
 		Regions.push_back(&Region);
@@ -2110,6 +2111,7 @@ void MoveLegacyLevelAssets(FLevelDocument& Document, const FLegacyLevelAssets& L
 	if (Start)
 	{
 		const FLevelTransform& Zone = Start->Transform;
+		// NOLINTNEXTLINE(bugprone-unchecked-optional-access): Start is only ever set to an entity with a Start trigger.
 		const FVector3 Down = Zone.Rotation.RotateVector({0.f, -Zone.Scale.Y * Start->Trigger->Size.Y * 0.5f, 0.f}) + FVector3::Up() * 0.05f;
 		const FVector3 Forward = Zone.Rotation.RotateVector(FVector3::Forward());
 		Player.Parent = Start->Parent;

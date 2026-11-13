@@ -186,7 +186,7 @@ void FEditorFramework::FImplementation::TogglePlay()
 	if (Loading != VisualEntities.end())
 	{
 		// A mesh whose cook failed never arrives, so Play says why instead of waiting for it.
-		const FPreviewMeshSlot* const Cached = Assets->GetCachedAsset(Loading->Mesh->Asset);
+		const FPreviewMeshSlot* const Cached = Assets->GetCachedAsset(Loading->Mesh->Asset); // NOLINT(bugprone-unchecked-optional-access): the search above matches only entities with a mesh
 		if (Cached && !Cached->bLoading && !Cached->Error.empty())
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Play cannot start: {}'s mesh failed to cook: {}", Loading->Name, Cached->Error);
@@ -778,10 +778,9 @@ void FEditorFramework::FImplementation::FinishAutomationFrame()
 	Run.LastMode = Mode;
 
 	// A steered run ends on arriving, and every run can end on its condition.
-	if (!AutomationInput.empty() && AutomationInput.front().SteerTo)
+	if (!AutomationInput.empty())
 	{
-		const FVector2 Target = *AutomationInput.front().SteerTo;
-		if (std::hypot(Target.X - State.Foot.X, Target.Y - State.Foot.Z) < 0.3f)
+		if (const std::optional<FVector2>& Target = AutomationInput.front().SteerTo; Target && std::hypot(Target->X - State.Foot.X, Target->Y - State.Foot.Z) < 0.3f)
 		{
 			Run.StoppedBy = "arrived";
 		}
@@ -1561,6 +1560,7 @@ void FEditorFramework::UpdateAutomation(FAutomationServer& Server)
 
 	if (Editor.AutomationPlayRequest)
 	{
+		const std::uint64_t PlayRequest = *Editor.AutomationPlayRequest;
 		const auto Now = std::chrono::steady_clock::now();
 		if (Editor.PlaySession)
 		{
@@ -1569,16 +1569,19 @@ void FEditorFramework::UpdateAutomation(FAutomationServer& Server)
 			{
 				if (auto Placed = Editor.PlaySession->TeleportPlayer(*At, Editor.AutomationPlayYaw); !Placed)
 				{
-					Server.Fail(*std::exchange(Editor.AutomationPlayRequest, std::nullopt), "teleport_failed", Placed.error().Message);
+					Editor.AutomationPlayRequest.reset();
+					Server.Fail(PlayRequest, "teleport_failed", Placed.error().Message);
 					return;
 				}
 			}
 
-			Server.Respond(*std::exchange(Editor.AutomationPlayRequest, std::nullopt), Editor.DescribePlay());
+			Editor.AutomationPlayRequest.reset();
+			Server.Respond(PlayRequest, Editor.DescribePlay());
 		}
 		else if (Now >= Editor.AutomationPlayDeadline)
 		{
-			Server.Fail(*std::exchange(Editor.AutomationPlayRequest, std::nullopt), "play_not_started", "Play did not start within 20 seconds; read editor_log for the reason");
+			Editor.AutomationPlayRequest.reset();
+			Server.Fail(PlayRequest, "play_not_started", "Play did not start within 20 seconds; read editor_log for the reason");
 		}
 		else if (Now >= Editor.AutomationPlayRetry)
 		{
@@ -1589,6 +1592,8 @@ void FEditorFramework::UpdateAutomation(FAutomationServer& Server)
 
 	if (Editor.AutomationInputRequest && (Editor.AutomationInput.empty() || !Editor.PlaySession))
 	{
+		const std::uint64_t InputRequest = *Editor.AutomationInputRequest;
+		Editor.AutomationInputRequest.reset();
 		Editor.AutomationInput.clear();
 		std::string Reply = Editor.DescribePlay();
 		const FImplementation::FAutomationRun& Run = Editor.AutomationRun;
@@ -1605,7 +1610,7 @@ void FEditorFramework::UpdateAutomation(FAutomationServer& Server)
 
 		Reply += "}";
 		Reply += Run.TraceEvery > 0 ? ", \"trace\": [" + Run.Trace + "]}" : "}";
-		Server.Respond(*std::exchange(Editor.AutomationInputRequest, std::nullopt), Reply);
+		Server.Respond(InputRequest, Reply);
 	}
 }
 }

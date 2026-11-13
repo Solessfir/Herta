@@ -103,7 +103,8 @@ bool FEditorNavigation::Poll()
 	Milliseconds = Done->Milliseconds;
 	if (Done->Result)
 	{
-		File = *Done->Result ? std::make_shared<const FNavigationFile>(std::move(**Done->Result)) : nullptr;
+		std::optional<FNavigationFile>& Built = *Done->Result;
+		File = Built ? std::make_shared<const FNavigationFile>(std::move(*Built)) : nullptr;
 		Triangles = std::move(Done->Triangles);
 		Error.clear();
 	}

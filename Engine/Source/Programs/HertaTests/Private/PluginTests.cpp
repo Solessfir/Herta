@@ -28,6 +28,7 @@ void WritePlugin(const std::filesystem::path& Root, const std::string_view Name,
 [[nodiscard]] std::vector<std::string> Names(const FPluginResolution& Resolution)
 {
 	std::vector<std::string> Result;
+	Result.reserve(Resolution.Load.size());
 	for (const FPluginDescriptor* const Plugin : Resolution.Load)
 	{
 		Result.push_back(Plugin->Name);

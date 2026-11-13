@@ -147,7 +147,7 @@ void ReportFailure(const std::string_view Message) noexcept
 			{
 				for (std::uint32_t BlockX = 0; BlockX < Factor; ++BlockX)
 				{
-					const std::size_t Source = (std::size_t{Y * Factor + BlockY} * Extent.Width + X * Factor + BlockX) * 4;
+					const std::size_t Source = (std::size_t{Y * Factor + BlockY} * Extent.Width + std::size_t{X} * Factor + BlockX) * 4;
 					for (std::size_t Channel = 0; Channel < 4; ++Channel)
 					{
 						Sum[Channel] += std::to_integer<std::uint32_t>(Pixels[Source + Channel]);
@@ -1649,7 +1649,12 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		{
 			// The first GPU result arrives a few frames after timing starts; without one by the deadline, the answer has none.
 			const auto Gpu = Presentation->GetToolUIGpuMilliseconds();
-			if (!bPresented || (--Stats->FramesLeft > 0 && (!Gpu || Stats->FramesLeft > 26)))
+			if (bPresented)
+			{
+				--Stats->FramesLeft;
+			}
+
+			if (!bPresented || (Stats->FramesLeft > 0 && (!Gpu || Stats->FramesLeft > 26)))
 			{
 				++Stats;
 				continue;

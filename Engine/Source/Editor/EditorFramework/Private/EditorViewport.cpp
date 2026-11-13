@@ -712,7 +712,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 			const bool bSelected = PreviewSelection.Contains(static_cast<int>(Index));
 			const Im3d::Mat4 EntityMatrix(PreviewObjects[Index].Translation, PreviewObjects[Index].Rotation, PreviewObjects[Index].Scale);
 			// Navigation bounds stay faintly visible so the built area reads at a glance; obstacles show what they cut.
-			for (const auto& [Size, Color] : {std::pair{Visual.NavigationBounds ? std::optional{Visual.NavigationBounds->Size} : std::nullopt, bSelected ? 0x8fe39cffu : 0x6fd38a66u}, std::pair{Visual.NavigationObstacle ? std::optional{Visual.NavigationObstacle->Size} : std::nullopt, bSelected ? 0xf0a35effu : 0xe08a3c99u}})
+			for (const auto& [Size, Color] : {std::pair{Visual.NavigationBounds ? &Visual.NavigationBounds->Size : nullptr, bSelected ? 0x8fe39cffu : 0x6fd38a66u}, std::pair{Visual.NavigationObstacle ? &Visual.NavigationObstacle->Size : nullptr, bSelected ? 0xf0a35effu : 0xe08a3c99u}})
 			{
 				if (Size)
 				{

@@ -67,6 +67,7 @@ FLocalizationReport ValidateCatalogs(const std::span<const FTextCatalog> Catalog
 std::string GenerateTextIdHeader(const FTextCatalog& Source, const std::string_view CatalogPath)
 {
 	std::vector<const FCatalogMessage*> Messages;
+	Messages.reserve(Source.Messages.size());
 	for (const FCatalogMessage& Message : Source.Messages)
 	{
 		Messages.push_back(&Message);

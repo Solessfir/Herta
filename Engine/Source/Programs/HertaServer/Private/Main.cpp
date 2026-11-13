@@ -50,8 +50,9 @@ void ReportFailure(const std::string_view Message) noexcept
 	{
 		std::println(stderr, "HertaServer: {}", Message);
 	}
-	catch (...)
+	catch (...) // NOLINT(bugprone-empty-catch)
 	{
+		// Reporting must not let a formatting exception escape main.
 	}
 }
 

@@ -319,6 +319,7 @@ std::span<const FCulture> FCulture::GetAll()
 	static const std::vector<FCulture> Cultures = []
 	{
 		std::vector<FCulture> All;
+		All.reserve(Cldr::Locales.size());
 		for (const Cldr::FLocale& Locale : Cldr::Locales)
 		{
 			All.emplace_back(Locale);

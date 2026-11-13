@@ -435,6 +435,7 @@ std::optional<std::uint32_t> FAudioGraphCompiler::EmitAudio(const FGraphNode& No
 void FAudioGraphCompiler::Run()
 {
 	std::vector<const FGraphNode*> Nodes;
+	Nodes.reserve(Graph.Nodes.size());
 	for (const FGraphNode& Node : Graph.Nodes)
 	{
 		Nodes.push_back(&Node);

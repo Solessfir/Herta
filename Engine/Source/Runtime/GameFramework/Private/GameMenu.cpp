@@ -44,6 +44,8 @@ std::vector<FGameMenu::FItem> FGameMenu::GetScreenItems(const FGameMenuSettings&
 		case EGameMenuScreen::Controls:
 		{
 			std::vector<FItem> Items;
+			Items.reserve(GameActionCount + 2);
+
 			for (std::size_t Action = 0; Action < GameActionCount; ++Action)
 			{
 				Items.push_back({.Kind = EItem::Binding, .Action = Action});

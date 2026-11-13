@@ -54,7 +54,7 @@ public:
 	~FTerminalSession();
 
 	[[nodiscard]] std::string Start(const std::string& WorkingDirectory);
-	void Write(std::string Bytes);
+	void Write(std::string_view Bytes);
 	// Output since the last call, and whether the shell has exited.
 	[[nodiscard]] std::string TakeOutput(bool& bExited);
 
@@ -278,6 +278,7 @@ std::string FTerminalSession::Start(const std::string& WorkingDirectory)
 	}
 
 	std::vector<char*> EnvironmentPointers;
+	EnvironmentPointers.reserve(Environment.size() + 1);
 	for (std::string& Variable : Environment)
 	{
 		EnvironmentPointers.push_back(Variable.data());
@@ -448,7 +449,7 @@ void FTerminalSession::Stop()
 }
 #endif
 
-void FTerminalSession::Write(std::string Bytes)
+void FTerminalSession::Write(std::string_view Bytes)
 {
 	{
 		const std::scoped_lock Lock(Mutex);

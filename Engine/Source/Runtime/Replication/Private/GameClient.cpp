@@ -420,6 +420,7 @@ void FGameClient::FImplementation::HandleSnapshot(const std::span<const std::byt
 	}
 
 	std::vector<FGameProjectileReplica> Balls;
+	Balls.reserve(Projectiles.size());
 	for (const auto& [Id, Ball] : Projectiles)
 	{
 		Balls.push_back(Ball);

@@ -342,6 +342,7 @@ void FEditorFramework::FImplementation::DrawLocalizationPanel()
 					// Three picks the few form where a culture has one, which shows plural branches a translator is likely to miss.
 					const std::vector<std::string> Names = Compiled->GetArgumentNames();
 					std::vector<FMessageArgument> Samples;
+					Samples.reserve(Names.size());
 					for (const std::string& Name : Names)
 					{
 						Samples.push_back({.Name = Name, .Value = std::int64_t{3}});

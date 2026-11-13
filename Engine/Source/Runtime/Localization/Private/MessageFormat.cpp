@@ -26,7 +26,7 @@ enum class ENodeKind : std::uint8_t
 	Pound,
 };
 
-constexpr std::size_t MaximumPatternBytes = 16 * 1024;
+constexpr std::size_t MaximumPatternBytes = std::size_t{16} * 1024;
 constexpr std::size_t MaximumDepth = 8;
 constexpr std::array<std::string_view, 6> PluralKeywords{"zero", "one", "two", "few", "many", "other"};
 constexpr std::array<std::string_view, 4> DateStyles{"full", "long", "medium", "short"};

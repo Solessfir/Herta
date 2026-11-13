@@ -342,12 +342,12 @@ void FMixer::Play(const FMixerCommand& Command)
 	if (!Slot)
 	{
 		// Every voice is busy: the quietest one, preferring those already fading, ends now so the new one can start.
-		FVoice* Victim = nullptr;
+		FVoice* Victim = &Voices.front();
 		for (FVoice& Voice : Voices)
 		{
 			const bool bFading = Voice.FadeStep > 0.f;
-			const bool bVictimFading = Victim && Victim->FadeStep > 0.f;
-			if (!Victim || (bFading && !bVictimFading) || (bFading == bVictimFading && Voice.Audibility < Victim->Audibility))
+			const bool bVictimFading = Victim->FadeStep > 0.f;
+			if ((bFading && !bVictimFading) || (bFading == bVictimFading && Voice.Audibility < Victim->Audibility))
 			{
 				Victim = &Voice;
 			}
@@ -630,7 +630,7 @@ void FMixer::RenderOscillator(FVoice& Voice, const FSoundNodeDesc& Node, const s
 
 	// Phase runs from 0 to 1 per cycle, so every waveform reads the same clock.
 	const double Step = std::clamp(static_cast<double>(ReadControl(Voice, Node.Control)) * Pitch, 0., SampleRate * 0.45) / SampleRate;
-	for (std::uint32_t Frame = TakeDelay(Player); Frame < AudioBlockFrames; ++Frame)
+	for (std::size_t Frame = TakeDelay(Player); Frame < AudioBlockFrames; ++Frame)
 	{
 		if (Player.Remaining == 0)
 		{
@@ -698,7 +698,7 @@ void FMixer::RenderEnvelope(FVoice& Voice, const FSoundNodeDesc& Node, const std
 
 	const float Sustain = Node.Range[2];
 	const std::uint32_t Begin = TakeDelay(State.Player);
-	for (std::uint32_t Frame = 0; Frame < AudioBlockFrames; ++Frame)
+	for (std::size_t Frame = 0; Frame < AudioBlockFrames; ++Frame)
 	{
 		if (Frame >= Begin)
 		{
@@ -768,7 +768,7 @@ void FMixer::RenderVoice(FVoice& Voice)
 		const FSoundNodeDesc& Node = Graph.Nodes[Index];
 		FNodeState& State = Voice.Nodes[Index];
 		float* const Output = Scratch.data() + Index * AudioBlockFrames * 2;
-		const float* const Input = Node.Inputs.empty() ? nullptr : Scratch.data() + Node.Inputs[0] * AudioBlockFrames * 2;
+		const float* const Input = Node.Inputs.empty() ? nullptr : Scratch.data() + std::size_t{Node.Inputs[0]} * AudioBlockFrames * 2;
 
 		switch (Node.Type)
 		{
@@ -796,8 +796,8 @@ void FMixer::RenderVoice(FVoice& Voice)
 					std::fill_n(Output, AudioBlockFrames * 2, 0.f);
 					for (const std::uint32_t Source : Node.Inputs)
 					{
-						const float* const From = Scratch.data() + Source * AudioBlockFrames * 2;
-						for (std::size_t Sample = 0; Sample < AudioBlockFrames * 2; ++Sample)
+						const float* const From = Scratch.data() + std::size_t{Source} * AudioBlockFrames * 2;
+						for (std::size_t Sample = 0; Sample < std::size_t{AudioBlockFrames} * 2; ++Sample)
 						{
 							Output[Sample] += From[Sample];
 						}
@@ -814,7 +814,7 @@ void FMixer::RenderVoice(FVoice& Voice)
 				if (!bVirtual)
 				{
 					const float Delta = (Gain - From) / static_cast<float>(AudioBlockFrames);
-					for (std::uint32_t Frame = 0; Frame < AudioBlockFrames; ++Frame)
+					for (std::size_t Frame = 0; Frame < AudioBlockFrames; ++Frame)
 					{
 						const float Current = From + Delta * static_cast<float>(Frame + 1);
 						Output[Frame * 2] = Input[Frame * 2] * Current;
@@ -870,7 +870,7 @@ void FMixer::RenderVoice(FVoice& Voice)
 		const float DeltaLeft = (TargetLeft - Voice.Left) / static_cast<float>(AudioBlockFrames);
 		const float DeltaRight = (TargetRight - Voice.Right) / static_cast<float>(AudioBlockFrames);
 		float Peak = 0.f;
-		for (std::uint32_t Frame = 0; Frame < AudioBlockFrames; ++Frame)
+		for (std::size_t Frame = 0; Frame < AudioBlockFrames; ++Frame)
 		{
 			const float Fade = Voice.Fade;
 			Voice.Fade = std::max(Voice.Fade - Voice.FadeStep, 0.f);

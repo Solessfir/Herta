@@ -1,12 +1,13 @@
 ---
 # optin.performance.Padding is off: it flags pimpl structs, whose members are grouped by concern and destruction order rather than size.
-# optin.portability.UnixAPI is off: its only findings are zero-byte mallocs inside vendored single-header implementations, which Herta never edits.
+# optin.portability.UnixAPI and unix.Malloc are off: their only findings are zero-byte mallocs inside vendored single-header implementations, which Herta never edits.
 Checks: >
   -*,
   clang-analyzer-*,
   -clang-analyzer-optin.core.EnumCastOutOfRange,
   -clang-analyzer-optin.performance.Padding,
   -clang-analyzer-optin.portability.UnixAPI,
+  -clang-analyzer-unix.Malloc,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   cppcoreguidelines-special-member-functions,
@@ -59,6 +60,8 @@ WarningsAsErrors: >
   portability-*
 CheckOptions:
   cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
+  # A void cast is how Herta marks a deliberate discard of a [[nodiscard]] result.
+  bugprone-unused-return-value.AllowCastToVoid: true
 HeaderFilterRegex: '^(Engine|Games)[\\/]'
 FormatStyle: file
 ...

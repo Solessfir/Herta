@@ -36,8 +36,10 @@ std::expected<FSoundSettings, FAssetError> ParseSoundSettings(const FAssetImport
 {
 	FSoundSettings Result;
 	FSoundPlayback& Playback = Result.Playback;
-	for (const auto& [Key, Value] : Settings)
+	for (const auto& Setting : Settings)
 	{
+		const std::string& Key = Setting.first;
+		const std::string& Value = Setting.second;
 		const auto Invalid = [&Key, &Value](const std::string_view Expected)
 		{
 			return Fail(std::format("Sound setting {} '{}' must be {}", Key, Value, Expected));
@@ -176,7 +178,7 @@ std::expected<FCookedSoundGraph, FAssetError> CookSoundGraph(const std::filesyst
 			return std::nullopt;
 		}
 
-		auto Text = ReadWholeFile(ContentRoot / Utf8ToPath(Path), 64 * 1024 * 1024);
+		auto Text = ReadWholeFile(ContentRoot / Utf8ToPath(Path), std::uint64_t{64} * 1024 * 1024);
 		if (!Text || !*Text)
 		{
 			return std::nullopt;

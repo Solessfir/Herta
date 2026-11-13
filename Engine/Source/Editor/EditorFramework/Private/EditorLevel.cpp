@@ -2008,7 +2008,7 @@ std::expected<void, FLevelError> FEditorLevel::AddPlayerToSelected()
 		FLevelEntity After = *Found;
 		After.Character = After.Character ? After.Character : std::optional{FCharacterComponent{}};
 		After.Player = FPlayerComponent{};
-		Changes.push_back({.Before = *Found, .After = std::move(After)});
+		Changes.push_back({.Before = Found, .After = std::move(After)});
 	}
 
 	return ApplyStructuralChanges("Add player", Changes, Selection, ActiveObject);

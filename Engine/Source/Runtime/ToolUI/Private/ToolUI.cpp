@@ -3791,11 +3791,11 @@ void FToolUIContext::SetText(const FLocalization* const Text) noexcept
 	Implementation->Text = Text;
 }
 
-void FToolUIContext::SetAppearance(const FEditorAppearance Appearance) noexcept
+void FToolUIContext::SetAppearance(FEditorAppearance Appearance) noexcept
 {
 	if (Implementation->Appearance != Appearance)
 	{
-		Implementation->Appearance = Appearance;
+		Implementation->Appearance = std::move(Appearance);
 		ApplyInteractiveColors(Implementation->BaseStyle, Implementation->Appearance.Accent);
 		ApplyAppearanceStyle(Implementation->BaseStyle, Implementation->Appearance);
 		Implementation->bAppearanceDirty = true;

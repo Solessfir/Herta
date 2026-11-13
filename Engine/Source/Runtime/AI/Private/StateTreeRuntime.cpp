@@ -245,9 +245,9 @@ bool FStateTreeExecution::Goto(const std::uint16_t Target, IStateTreeContext& Co
 
 EStateTreeStatus FStateTreeExecution::GetStatus(const std::size_t Depth) noexcept
 {
-	if (Forced[Depth])
+	if (const std::optional<EStateTreeStatus>& Status = Forced[Depth])
 	{
-		return *Forced[Depth];
+		return *Status;
 	}
 
 	const FStateTreeStateDesc& State = Program->States[Active[Depth]];

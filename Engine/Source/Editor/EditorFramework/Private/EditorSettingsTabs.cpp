@@ -453,6 +453,7 @@ void FEditorFramework::FImplementation::DrawProjectSettingsTab()
 	else if (State.Section == 2)
 	{
 		std::vector<const char*> ModuleNames;
+		ModuleNames.reserve(State.Draft.Modules.size());
 		for (const FProjectModule& Module : State.Draft.Modules)
 		{
 			ModuleNames.push_back(Module.Name.c_str());

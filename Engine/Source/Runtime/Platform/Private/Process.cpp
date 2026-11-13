@@ -542,7 +542,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	{
 		for (const auto& [Name, Value] : Request.Environment)
 		{
-			EnvironmentStorage.push_back(Name + '=' + Value);
+			EnvironmentStorage.push_back(std::format("{}={}", Name, Value));
 		}
 
 		for (char* const* Entry = environ; *Entry != nullptr; ++Entry)
@@ -746,7 +746,7 @@ std::optional<std::filesystem::path> FindExecutableOnPath(const std::string_view
 	for (const auto Part : std::views::split(std::string_view(Path), ':'))
 	{
 		const std::string_view Directory(Part.begin(), Part.end());
-		const std::filesystem::path Candidate = std::filesystem::path(Directory.empty() ? "." : Directory) / Name;
+		std::filesystem::path Candidate = std::filesystem::path(Directory.empty() ? "." : Directory) / Name;
 		std::error_code Error;
 		if (std::filesystem::is_regular_file(Candidate, Error) && access(Candidate.c_str(), X_OK) == 0)
 		{

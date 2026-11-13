@@ -163,12 +163,13 @@ std::vector<FNavigationBox> GetLevelNavigationBoxes(const std::span<const FLevel
 	std::vector<FNavigationBox> Boxes;
 	for (std::size_t Index = 0; Index < std::min(Entities.size(), World.size()); ++Index)
 	{
-		if (!Entities[Index].NavigationBounds)
+		const auto& NavigationBounds = Entities[Index].NavigationBounds;
+		if (!NavigationBounds)
 		{
 			continue;
 		}
 
-		const FVector3 Half = Entities[Index].NavigationBounds->Size * 0.5f;
+		const FVector3 Half = NavigationBounds->Size * 0.5f;
 		FNavigationBox& Box = Boxes.emplace_back(FNavigationBox{.Minimum = {1.e30f, 1.e30f, 1.e30f}, .Maximum = {-1.e30f, -1.e30f, -1.e30f}});
 		for (int Corner = 0; Corner < 8; ++Corner)
 		{
@@ -200,13 +201,14 @@ std::expected<std::optional<FNavigationFile>, FNavigationError> BuildLevelNaviga
 	std::vector<std::pair<std::size_t, std::vector<FNavigationBox>>> RegionBoxes;
 	for (std::size_t Index = 0; Index < std::min(Regions.size(), Level.Regions.size()); ++Index)
 	{
-		if (!Regions[Index])
+		const std::optional<FLevelDocument>& RegionLevel = Regions[Index];
+		if (!RegionLevel)
 		{
 			continue;
 		}
 
 		const FLevelRegion& Region = Level.Regions[Index];
-		const std::vector<FLevelEntity>& Entities = Regions[Index]->Entities;
+		const std::vector<FLevelEntity>& Entities = RegionLevel->Entities;
 		const auto Placed = ComposeLevelRegionMatrices(Region, Entities);
 		if (!Placed)
 		{

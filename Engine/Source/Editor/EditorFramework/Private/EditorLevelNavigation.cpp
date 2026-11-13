@@ -39,9 +39,9 @@ void FEditorFramework::FImplementation::UpdateNavigation()
 	}
 
 	// Play walks the level as it started, so a build that finishes during Play is the one for that level.
-	if (PlaySession && Navigation->GetKey() && *Navigation->GetKey() != PlayNavigationKey)
+	if (const std::optional<std::uint64_t> NavigationKey = Navigation->GetKey(); PlaySession && NavigationKey && *NavigationKey != PlayNavigationKey)
 	{
-		PlayNavigationKey = *Navigation->GetKey();
+		PlayNavigationKey = *NavigationKey;
 		if (auto Applied = PlaySession->SetNavigation(Navigation->GetFile()); !Applied)
 		{
 			HERTA_LOG_WARNING(*Log, EditorLog, "Play has no navigation: {}", Applied.error().Message);

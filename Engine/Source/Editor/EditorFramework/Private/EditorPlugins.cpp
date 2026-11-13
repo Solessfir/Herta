@@ -653,7 +653,7 @@ void FEditorPlugins::RunProcess(FEditorPluginProcess Process, std::function<void
 			}
 		}
 
-		const auto Ran = Herta::RunProcess({.Executable = Executable,
+		auto Ran = Herta::RunProcess({.Executable = Executable,
 		    .Arguments = std::move(Process.Arguments),
 		    .Timeout = std::chrono::milliseconds(Process.TimeoutMilliseconds),
 		    .ShouldCancel = [&Context]

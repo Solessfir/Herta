@@ -75,9 +75,9 @@ std::expected<void, FGameError> FGameNavigation::Start(const std::span<const FLe
 
 	for (std::size_t Index = 0; Index < Entities.size(); ++Index)
 	{
-		if (Entities[Index].NavigationObstacle)
+		if (const auto& Obstacle = Entities[Index].NavigationObstacle)
 		{
-			Obstacles.push_back({.Entity = Index, .HalfExtents = Entities[Index].NavigationObstacle->Size * 0.5f});
+			Obstacles.push_back({.Entity = Index, .HalfExtents = Obstacle->Size * 0.5f});
 		}
 	}
 

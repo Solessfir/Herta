@@ -501,6 +501,7 @@ FAnimationStateMachineDesc FAnimationGraphCompiler::BuildMachine(const std::stri
 	}
 
 	std::vector<std::pair<std::int32_t, const FGraphNode*>> Transitions;
+	Transitions.reserve(Nodes.Transitions.size());
 	for (const FGraphNode* Node : Nodes.Transitions)
 	{
 		Transitions.emplace_back(std::get<std::int32_t>(Property(*Node, "priority")), Node);
@@ -597,6 +598,7 @@ std::expected<FAnimationGraphCompilation, std::vector<FGraphDiagnostic>> FAnimat
 	}
 
 	std::vector<const FGraphNode*> Nodes;
+	Nodes.reserve(Graph.Nodes.size());
 	for (const FGraphNode& Node : Graph.Nodes)
 	{
 		Nodes.push_back(&Node);

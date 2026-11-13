@@ -31,6 +31,7 @@ namespace
 [[nodiscard]] std::vector<std::string> Order(const std::span<const FModCandidate> Mods, const FModResolution& Resolution)
 {
 	std::vector<std::string> Names;
+	Names.reserve(Resolution.LoadOrder.size());
 	for (const std::size_t Index : Resolution.LoadOrder)
 	{
 		Names.push_back(Mods[Index].Manifest.Namespace);

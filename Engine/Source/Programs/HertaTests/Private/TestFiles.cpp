@@ -74,7 +74,7 @@ std::vector<std::byte> EncodeWav(const std::uint32_t SampleRate, const std::uint
 	Put(Channels, 2);
 	Put(SampleRate, 4);
 	Put(std::uint64_t{SampleRate} * Channels * 2, 4);
-	Put(Channels * 2, 2);
+	Put(std::uint64_t{Channels} * 2, 2);
 	Put(16, 2);
 	Tag("data");
 	Put(Bytes, 4);

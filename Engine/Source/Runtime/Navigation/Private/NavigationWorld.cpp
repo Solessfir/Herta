@@ -523,7 +523,7 @@ FNavigationPath FNavigationWorld::FImplementation::FinishPath(const FVector3& St
 		}
 	}
 
-	std::vector<float> Straight(MaximumStraightPoints * 3);
+	std::vector<float> Straight(static_cast<std::size_t>(MaximumStraightPoints) * 3);
 	int StraightCount = 0;
 	if (dtStatusFailed(Query->findStraightPath(StartPoint, EndPoint, Polygons, Count, Straight.data(), nullptr, nullptr, &StraightCount, MaximumStraightPoints)))
 	{
@@ -966,10 +966,10 @@ void FNavigationWorld::GetDebugTriangles(std::vector<FVector3>& OutTriangles) co
 			const dtPolyDetail& Detail = Tile->detailMeshes[PolygonIndex];
 			for (int Triangle = 0; Triangle < Detail.triCount; ++Triangle)
 			{
-				const unsigned char* const Corners = &Tile->detailTris[(Detail.triBase + static_cast<unsigned int>(Triangle)) * 4];
+				const unsigned char* const Corners = &Tile->detailTris[std::size_t{Detail.triBase + static_cast<unsigned int>(Triangle)} * 4];
 				for (int Corner = 0; Corner < 3; ++Corner)
 				{
-					const float* const Vertex = Corners[Corner] < Polygon.vertCount ? &Tile->verts[Polygon.verts[Corners[Corner]] * 3] : &Tile->detailVerts[(Detail.vertBase + Corners[Corner] - Polygon.vertCount) * 3];
+					const float* const Vertex = Corners[Corner] < Polygon.vertCount ? &Tile->verts[std::size_t{Polygon.verts[Corners[Corner]]} * 3] : &Tile->detailVerts[std::size_t{Detail.vertBase + Corners[Corner] - Polygon.vertCount} * 3];
 					OutTriangles.push_back(ToVector(Vertex));
 				}
 			}

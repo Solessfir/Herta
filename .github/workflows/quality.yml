@@ -220,11 +220,12 @@ jobs:
               Herta \
               HertaGame \
               HertaAssetWorker \
-              HertaShaderWorker
+              HertaShaderWorker \
+              HertaCooker \
+              HertaServer
           test -s compile_commands.json
-          mapfile -d '' Sources < <(git ls-files -z -- \
-            ':(glob)Engine/**/*.cpp' \
-            ':(glob)Games/**/*.cpp')
+          # Projects such as the Sandbox build in their own workspace, outside this compilation database.
+          mapfile -d '' Sources < <(git ls-files -z -- ':(glob)Engine/**/*.cpp')
           test "${#Sources[@]}" -gt 0
           # One clang-tidy process per core; xargs still fails the step when any file reports a finding.
           # Each file uses its nearest .clang-tidy, so HertaTests can relax checks that cannot see doctest assertions.

@@ -299,7 +299,7 @@ FPreviewAssetMetadata GetPreviewAssetMetadata(const FCookedAsset& Asset)
 		return FPreviewSoundMetadata{
 		    .SampleRate = Sound->SampleRate,
 		    .Channels = Sound->Channels,
-		    .Seconds = static_cast<double>(Sound->Samples.size() / Sound->Channels) / Sound->SampleRate,
+		    .Seconds = static_cast<double>(Sound->Samples.size()) / Sound->Channels / Sound->SampleRate,
 		    .bLoop = Sound->bLoop,
 		    .bStream = Sound->bStream,
 		    .Bus = Sound->Playback.Bus,

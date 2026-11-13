@@ -124,10 +124,10 @@ struct FAutomationServer::FImplementation
 	void Serve(FIpcConnection& Connection, const std::stop_token& Stop)
 	{
 		simdjson::dom::parser Parser;
-		const auto Hello = Connection.Receive(5s);
+		const std::optional<std::string> Hello = Connection.Receive(5s).value_or(std::nullopt);
 		simdjson::dom::element Element;
 		std::string_view Offered;
-		if (!Hello || !*Hello || Parser.parse(**Hello).get(Element) || Element["token"].get_string().get(Offered) || !TokensMatch(Offered, Token))
+		if (!Hello || Parser.parse(*Hello).get(Element) || Element["token"].get_string().get(Offered) || !TokensMatch(Offered, Token))
 		{
 			(void)Connection.Send(MakeError(std::nullopt, "unauthorized", "The session token does not match"));
 			Audit("connect", "rejected");
@@ -149,12 +149,12 @@ struct FAutomationServer::FImplementation
 				break;
 			}
 
-			if (*Received)
+			if (const std::optional<std::string>& Message = *Received)
 			{
 				std::uint64_t Id = 0;
 				std::string_view Tool;
 				simdjson::dom::element Arguments;
-				const bool bValid = !Parser.parse(**Received).get(Element) && !Element["id"].get_uint64().get(Id) && !Element["tool"].get_string().get(Tool) && !Tool.empty();
+				const bool bValid = !Parser.parse(*Message).get(Element) && !Element["id"].get_uint64().get(Id) && !Element["tool"].get_string().get(Tool) && !Tool.empty();
 				if (!bValid)
 				{
 					(void)Connection.Send(MakeError(std::nullopt, "invalid_request", "A request needs an unsigned id, a tool name, and an arguments object"));
@@ -219,9 +219,15 @@ struct FAutomationServer::FImplementation
 
 	void Run(const std::stop_token& Stop)
 	{
+		if (!Listener)
+		{
+			return;
+		}
+
+		FIpcListener& Clients = *Listener;
 		while (!Stop.stop_requested())
 		{
-			auto Accepted = Listener->Accept(100ms);
+			auto Accepted = Clients.Accept(100ms);
 			if (!Accepted)
 			{
 				Audit("listen", Accepted.error().Message);
@@ -229,9 +235,9 @@ struct FAutomationServer::FImplementation
 				continue;
 			}
 
-			if (*Accepted)
+			if (std::optional<FIpcConnection>& Connection = *Accepted)
 			{
-				Serve(**Accepted, Stop);
+				Serve(*Connection, Stop);
 				std::scoped_lock Lock(Mutex);
 				Outgoing.clear();
 			}
@@ -310,11 +316,10 @@ std::vector<FAutomationRequest> FAutomationServer::TakeRequests()
 
 void FAutomationServer::Respond(const std::uint64_t Id, std::string ResultJson)
 {
-	std::string Response = std::format("{{\"id\": {}, \"result\": ", Id);
-	Response += ResultJson;
-	Response += "}";
+	ResultJson.insert(0, std::format("{{\"id\": {}, \"result\": ", Id));
+	ResultJson += "}";
 	std::scoped_lock Lock(Implementation->Mutex);
-	Implementation->Outgoing.push_back({.Id = Id, .Text = std::move(Response), .bFailed = false});
+	Implementation->Outgoing.push_back({.Id = Id, .Text = std::move(ResultJson), .bFailed = false});
 }
 
 void FAutomationServer::Fail(const std::uint64_t Id, const std::string_view Code, const std::string_view Message)

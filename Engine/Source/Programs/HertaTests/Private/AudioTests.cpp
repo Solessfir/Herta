@@ -37,6 +37,22 @@ void* operator new(const std::size_t Size)
 	throw std::bad_alloc();
 }
 
+// Replaced too, so memory that standard algorithms take with nothrow new, such as stable_sort's buffer, is freed by the allocator that made it.
+void* operator new(const std::size_t Size, const std::nothrow_t&) noexcept
+{
+	if (bCountAllocations)
+	{
+		++Allocations;
+	}
+
+	return std::malloc(Size == 0 ? 1 : Size);
+}
+
+void operator delete(void* const Memory, const std::nothrow_t&) noexcept
+{
+	std::free(Memory);
+}
+
 void operator delete(void* const Memory) noexcept
 {
 	std::free(Memory);
@@ -464,7 +480,7 @@ TEST_CASE("The mixer renders the same output for the same commands and never all
 		REQUIRE(Engine->AddSoundGraph(GraphId, MakeImpactGraph()));
 		Engine->Submit(FAudioListenerCommand{.Listener = {.Position = {1.f, 0.f, 0.f}}});
 		std::vector<float> Mixed;
-		std::vector<float> Block(512 * 2);
+		std::vector<float> Block(std::size_t{512} * 2);
 		for (std::uint32_t Step = 0; Step < 200; ++Step)
 		{
 			const auto Position = FVector3{std::sin(static_cast<float>(Step) * 0.1f) * 6.f, 0.f, 3.f};
@@ -512,7 +528,7 @@ TEST_CASE("The mixer stays consistent while another thread renders under command
 	std::atomic<std::size_t> RenderAllocations = 0;
 	std::thread Renderer([&]
 	{
-		std::vector<float> Block(256 * 2);
+		std::vector<float> Block(std::size_t{256} * 2);
 		bCountAllocations = true;
 		while (bRunning.load(std::memory_order_acquire))
 		{
@@ -600,7 +616,7 @@ TEST_CASE("Sound decoding reads WAV files and rejects garbage")
 	CHECK(Decoded->SampleRate == 22050);
 	CHECK(Decoded->Channels == 2);
 	REQUIRE(Decoded->Samples.size() == Frames * 2);
-	CHECK(Decoded->Samples[2 * 500] == 5000);
+	CHECK(Decoded->Samples[std::size_t{2} * 500] == 5000);
 	CHECK(Decoded->Samples[2 * 500 + 1] == -5000);
 
 	std::vector<std::byte> Garbage(4096, std::byte{0x5a});

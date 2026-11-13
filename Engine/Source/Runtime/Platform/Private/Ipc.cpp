@@ -257,7 +257,7 @@ struct FIpcConnection::FImplementation
 			return 0;
 		}
 
-		std::array<char, 64 * 1024> Buffer{};
+		std::array<char, std::size_t{64} * 1024> Buffer{};
 		const ssize_t Read = recv(Pipe.Value, Buffer.data(), Buffer.size(), 0);
 		if (Read == 0)
 		{
@@ -347,10 +347,12 @@ std::expected<FIpcConnection, FIpcError> FIpcConnection::Connect(const std::stri
 		return std::unexpected(Address.error());
 	}
 
-	Implementation->Pipe = FHandle(socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0));
-	if (Implementation->Pipe.Value < 0 || connect(Implementation->Pipe.Value, reinterpret_cast<const sockaddr*>(&*Address), sizeof(*Address)) != 0)
+	const int Socket = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	const int Error = Socket < 0 || connect(Socket, reinterpret_cast<const sockaddr*>(&*Address), sizeof(*Address)) != 0 ? errno : 0;
+	Implementation->Pipe = FHandle(Socket);
+	if (Error != 0)
 	{
-		return Fail(errno == ENOENT || errno == ECONNREFUSED ? std::string("Nothing is listening on the IPC endpoint") : SystemMessage(errno));
+		return Fail(Error == ENOENT || Error == ECONNREFUSED ? std::string("Nothing is listening on the IPC endpoint") : SystemMessage(Error));
 	}
 #endif
 

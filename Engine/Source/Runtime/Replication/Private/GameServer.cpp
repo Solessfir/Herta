@@ -445,7 +445,8 @@ std::expected<void, FReplicationError> FGameServer::FImplementation::Receive()
 			const auto Found = std::ranges::find(Connections, Event.Connection, &FConnection::Id);
 			if (Found != Connections.end())
 			{
-				if (FPlayer* const Player = Found->Player ? FindPlayer(*Found->Player) : nullptr)
+				const auto& Owner = Found->Player;
+				if (FPlayer* const Player = Owner ? FindPlayer(*Owner) : nullptr)
 				{
 					Player->Connection.reset();
 					Player->AwaySeconds = 0.f;
@@ -490,7 +491,13 @@ std::expected<void, FReplicationError> FGameServer::FImplementation::Receive()
 	std::vector<std::uint32_t> Expired;
 	for (FPlayer& Player : Players)
 	{
-		if (!Player.Connection && (Player.AwaySeconds += TickSeconds) > Settings.ReconnectSeconds)
+		if (Player.Connection)
+		{
+			continue;
+		}
+
+		Player.AwaySeconds += TickSeconds;
+		if (Player.AwaySeconds > Settings.ReconnectSeconds)
 		{
 			Expired.push_back(Player.Id);
 		}
@@ -646,6 +653,12 @@ std::vector<FCandidate> FGameServer::FImplementation::GatherEntities() const
 
 void FGameServer::FImplementation::SendSnapshot(FPlayer& Player, const std::span<const FCandidate> Entities)
 {
+	if (!Player.Connection)
+	{
+		return;
+	}
+
+	const FNetworkConnectionId Connection = *Player.Connection;
 	const std::uint32_t Sequence = Player.NextSequence++;
 	const FVector3 Viewer = Session->CapturePlayer(Player.Slot).Mover.State.Foot;
 	const float RadiusSquared = Settings.RelevancyRadius * Settings.RelevancyRadius;
@@ -730,7 +743,7 @@ void FGameServer::FImplementation::SendSnapshot(FPlayer& Player, const std::span
 	}
 
 	const std::vector<std::byte> Message = EncodeSnapshot(Snapshot, Lookup);
-	if (Transport->Send(*Player.Connection, Message, ENetworkDelivery::Unreliable))
+	if (Transport->Send(Connection, Message, ENetworkDelivery::Unreliable))
 	{
 		++Stats.SnapshotsSent;
 		Stats.SnapshotBytes += Message.size();

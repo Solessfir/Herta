@@ -12,7 +12,7 @@ namespace Herta
 {
 namespace
 {
-enum EStateTreePin : std::uint32_t
+enum EStateTreePin : std::uint8_t
 {
 	HierarchyPin = 1,
 	ItemsPin,
@@ -383,15 +383,15 @@ struct FCompiler
 	void AddTransitions()
 	{
 		std::map<std::string, std::uint16_t, std::less<>> Indices;
-		for (std::uint16_t Index = 0; Index < Tree.States.size(); ++Index)
+		for (std::size_t Index = 0; Index < Tree.States.size(); ++Index)
 		{
-			if (!Indices.emplace(Tree.States[Index].Name, Index).second)
+			if (!Indices.emplace(Tree.States[Index].Name, static_cast<std::uint16_t>(Index)).second)
 			{
 				Errors.push_back({.Node = StateNodes[Index]->Id, .Message = std::format("Another state is already named '{}'", Tree.States[Index].Name)});
 			}
 		}
 
-		for (std::uint16_t Index = 0; Index < Tree.States.size(); ++Index)
+		for (std::size_t Index = 0; Index < Tree.States.size(); ++Index)
 		{
 			Tree.States[Index].FirstTransition = static_cast<std::uint16_t>(Tree.Transitions.size());
 			for (const FGraphNode* const Node : Attached(StateNodes[Index]->Id, "Items", [](const FGraphNode& Item)
@@ -470,8 +470,9 @@ struct FCompiler
 			return std::nullopt;
 		};
 
-		for (std::uint16_t Start = 0; Start < Tree.States.size(); ++Start)
+		for (std::size_t StateIndex = 0; StateIndex < Tree.States.size(); ++StateIndex)
 		{
+			const auto Start = static_cast<std::uint16_t>(StateIndex);
 			if (!IsInstant(Start))
 			{
 				continue;

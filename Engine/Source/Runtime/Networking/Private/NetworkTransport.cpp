@@ -64,7 +64,13 @@ void OnDebugOutput(ESteamNetworkingSocketsDebugOutputType, const char* const Mes
 void ReleaseLibrary()
 {
 	const std::scoped_lock Lock(LibraryMutex);
-	if (LibraryUsers > 0 && --LibraryUsers == 0)
+	if (LibraryUsers == 0)
+	{
+		return;
+	}
+
+	--LibraryUsers;
+	if (LibraryUsers == 0)
 	{
 		GameNetworkingSockets_Kill();
 	}
@@ -75,7 +81,8 @@ struct FNetworkTransport::FImplementation
 {
 	static void OnStatusChanged(SteamNetConnectionStatusChangedCallback_t* const Info)
 	{
-		auto* const Transport = reinterpret_cast<FImplementation*>(static_cast<std::intptr_t>(Info->m_info.m_nUserData));
+		// GameNetworkingSockets carries connection user data only as an integer.
+		auto* const Transport = reinterpret_cast<FImplementation*>(static_cast<std::intptr_t>(Info->m_info.m_nUserData)); // NOLINT(performance-no-int-to-ptr)
 		if (Transport)
 		{
 			Transport->HandleStatus(*Info);

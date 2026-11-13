@@ -83,6 +83,11 @@ public:
 				}
 			}
 
+			if (!Connection)
+			{
+				break;
+			}
+
 			const std::uint64_t Id = ++NextId;
 			std::string Request = std::format("{{\"id\": {}, \"tool\": ", Id);
 			AppendJsonString(Request, Tool);
@@ -99,16 +104,16 @@ public:
 			const auto Deadline = std::chrono::steady_clock::now() + 150s;
 			while (std::chrono::steady_clock::now() < Deadline)
 			{
-				const auto Reply = Connection->Receive(500ms);
+				auto Reply = Connection->Receive(500ms);
 				if (!Reply)
 				{
 					Connection.reset();
 					return std::unexpected(std::format("The editor closed the connection: {}", Reply.error().Message));
 				}
 
-				if (*Reply)
+				if (std::optional<std::string>& Text = *Reply)
 				{
-					return std::move(**Reply);
+					return std::move(*Text);
 				}
 			}
 
@@ -159,8 +164,8 @@ private:
 			return std::unexpected("Could not send the session token to the editor");
 		}
 
-		const auto Reply = Opened->Receive(5s);
-		if (!Reply || !*Reply || !(*Reply)->contains("\"ok\": true"))
+		const std::optional<std::string> Reply = Opened->Receive(5s).value_or(std::nullopt);
+		if (!Reply || !Reply->contains("\"ok\": true"))
 		{
 			return std::unexpected("The editor refused the session token");
 		}
