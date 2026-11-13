@@ -588,7 +588,7 @@ struct FEditorFramework::FImplementation
 	// When the level was last saved this session, for the status bar.
 	std::optional<std::chrono::steady_clock::time_point> LastLevelSave;
 
-	// The command palette, open as a popup from Ctrl+K.
+	// The command palette, open as a popup from Ctrl+P.
 	bool bCommandPaletteRequested = false;
 	// The localization generation the title bar search hint was last set in; unset until the first frame.
 	std::optional<std::uint64_t> TitleSearchGeneration;

@@ -30,7 +30,7 @@ constexpr std::array<FTextId, 3> PaletteHeadings{Editor::Palette_Entities, Edito
 void FEditorFramework::FImplementation::DrawCommandPalette()
 {
 	const ImGuiIO& IO = ImGui::GetIO();
-	if (!IO.AppFocusLost && IO.KeyMods == ImGuiMod_Ctrl && ImGui::IsKeyPressed(ImGuiKey_K, false) && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+	if (!IO.AppFocusLost && IO.KeyMods == ImGuiMod_Ctrl && ImGui::IsKeyPressed(ImGuiKey_P, false) && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
 	{
 		bCommandPaletteRequested = true;
 	}
@@ -39,7 +39,7 @@ void FEditorFramework::FImplementation::DrawCommandPalette()
 	if (const std::uint64_t Generation = Localization.GetGeneration(); TitleSearchGeneration != Generation)
 	{
 		TitleSearchGeneration = Generation;
-		ToolUI->SetTitleSearch(Localization.Format(Editor::Palette_TitleHint), "Ctrl K");
+		ToolUI->SetTitleSearch(Localization.Format(Editor::Palette_TitleHint), "Ctrl P");
 	}
 
 	bCommandPaletteRequested |= ToolUI->ConsumeTitleSearchClick();

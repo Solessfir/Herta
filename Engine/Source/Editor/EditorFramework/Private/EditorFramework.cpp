@@ -861,7 +861,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 	}, [&]
 	{
-		Implementation->bCommandPaletteRequested |= ToolUIMenuItem(Localization.Format(Editor::Menu_CommandPalette), EToolUIMenuIcon::Search, nullptr, "Ctrl+K");
+		Implementation->bCommandPaletteRequested |= ToolUIMenuItem(Localization.Format(Editor::Menu_CommandPalette), EToolUIMenuIcon::Search, nullptr, "Ctrl+P");
 		ImGui::Separator();
 		if (ToolUIMenuItem(Localization.Format(Editor::Menu_Plugins), EToolUIMenuIcon::Panel))
 		{
