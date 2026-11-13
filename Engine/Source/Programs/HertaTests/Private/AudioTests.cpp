@@ -569,15 +569,17 @@ TEST_CASE("The mixer stays consistent while another thread renders under command
 		}
 	}
 
-	// The queue may be full of the burst above, so the stop repeats until a block has run with every voice gone.
-	// Shared CI runners can render blocks several times slower than real time, so the deadline is generous.
+	// The queue may be full of the burst above, so the stop repeats until a whole block has rendered after it with every voice gone.
+	// The renderer may not have started yet when the burst ends, so a voice count from before its next block proves nothing.
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
 	while (std::chrono::steady_clock::now() < Deadline)
 	{
+		const std::uint64_t BlocksBefore = Engine->GetStats().Blocks;
 		Engine->Submit(FAudioStopAllCommand{.FadeSeconds = 0.f});
 		std::this_thread::sleep_for(std::chrono::milliseconds(2));
 		Engine->Update(0.f);
-		if (Engine->GetStats().Voices == 0)
+		const FAudioStats Progress = Engine->GetStats();
+		if (Progress.Voices == 0 && Progress.Blocks > BlocksBefore + 1)
 		{
 			break;
 		}

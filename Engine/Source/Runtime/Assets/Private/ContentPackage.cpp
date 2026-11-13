@@ -333,6 +333,11 @@ struct FContentPackage::FImplementation
 		}
 
 		std::vector<std::byte> Bytes(static_cast<std::size_t>(Size));
+		if (Bytes.empty())
+		{
+			return Bytes;
+		}
+
 		if (!Memory.empty())
 		{
 			std::memcpy(Bytes.data(), Memory.data() + Offset, Bytes.size());
