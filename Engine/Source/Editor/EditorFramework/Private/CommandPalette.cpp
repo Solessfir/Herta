@@ -53,9 +53,14 @@ void FEditorFramework::FImplementation::DrawCommandPalette()
 	}
 
 	const float Scale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
-	const ImGuiViewport* const Viewport = ImGui::GetMainViewport();
-	ImGui::SetNextWindowPos({Viewport->Pos.x + Viewport->Size.x * 0.5f, Viewport->Pos.y + 84.f * Scale}, ImGuiCond_Always, {0.5f, 0.f});
-	ImGui::SetNextWindowSize({std::min(560.f * Scale, Viewport->Size.x - 32.f * Scale), 0.f});
+	// The palette drops from the top of the level viewport, where the eye already is; without a visible viewport panel it centers on the editor.
+	const ImGuiWindow* const ViewportPanel = ImGui::FindWindowByName("###Viewport");
+	const bool bOverViewport = ViewportPanel && ViewportPanel->WasActive && !ViewportPanel->Hidden;
+	const ImGuiViewport* const MainViewport = ImGui::GetMainViewport();
+	const ImVec2 AreaPosition = bOverViewport ? ViewportPanel->Pos : ImVec2{MainViewport->Pos.x, MainViewport->Pos.y + 72.f * Scale};
+	const ImVec2 AreaSize = bOverViewport ? ViewportPanel->Size : MainViewport->Size;
+	ImGui::SetNextWindowPos({AreaPosition.x + AreaSize.x * 0.5f, AreaPosition.y + 12.f * Scale}, ImGuiCond_Always, {0.5f, 0.f});
+	ImGui::SetNextWindowSize({std::min(560.f * Scale, AreaSize.x - 32.f * Scale), 0.f});
 	ImGui::SetNextWindowBgAlpha(0.f);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {8.f * Scale, 8.f * Scale});
 	const bool bOpen = ImGui::BeginPopup("##CommandPalette", ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar);
