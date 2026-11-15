@@ -260,9 +260,13 @@ TEST_CASE("Replicated sessions play the course through a listen server's loopbac
 	}));
 
 	// Prediction finished the run locally, a little ahead of the server; once the server catches up it agrees, and the guest sees the host
-	// where the server has it.
+	// where the server has it. The host stops first: these ticks are 200 us apart, so a few milliseconds of loopback delay leave dozens of
+	// running inputs in flight, and comparing while still running would measure that lead instead of agreement.
 	FGameSession& Authoritative = (*Server)->GetSession();
-	REQUIRE(Run(**Server, Clients, Input, 120, {}));
+	REQUIRE(Run(**Server, Clients, [&Input](const std::size_t Client, const int Tick)
+	{
+		return Client == 0 ? FGameInput{} : Input(Client, Tick);
+	}, 120, {}));
 	// Whichever client's hello arrived first took the server's first player.
 	const auto HostSlot = (*Server)->FindPlayerSlot((*Local)->GetPlayerId());
 	REQUIRE(HostSlot);
